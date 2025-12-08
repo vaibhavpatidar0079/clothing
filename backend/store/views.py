@@ -309,18 +309,25 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None  # Disable pagination for categories (small tree structure)
     
     def get_queryset(self):
-        """Filter to only show active categories that are marked to show on home page"""
-        # Get all top-level categories (parent=None) that are active and show_on_home=True
-        # Also include their active children
+        """Return top-level active categories.
+
+        If the request includes `show_on_home=true`, only return categories
+        marked with `show_on_home=True`. This keeps the default behaviour
+        unchanged for other consumers of the categories endpoint.
+        """
         qs = Category.objects.filter(
-            parent=None, 
-            is_active=True,
-            show_on_home=True
+            parent=None,
+            is_active=True
         ).prefetch_related(
             'children__children',
             'products'
-        ).select_related()  # Optimize queries
-        
+        ).select_related()
+
+        if hasattr(self, 'request'):
+            val = self.request.query_params.get('show_on_home')
+            if val is not None and val.lower() in ('1', 'true', 'yes'):
+                qs = qs.filter(show_on_home=True)
+
         return qs
     
     def get_serializer_context(self):
@@ -343,7 +350,9 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     Advanced Product Catalog.
     Includes filtering, sorting, and optimization.
     """
-    queryset = Product.objects.filter(is_active=True, show_on_home=True).select_related('brand', 'category') \
+    # Default queryset: all active products. Filtering by `show_on_home`
+    # should be opt-in via query params (used by the home page).
+    queryset = Product.objects.filter(is_active=True).select_related('brand', 'category') \
         .prefetch_related('images', 'sizes', 'variants__variant_product', 'reviews') \
         .annotate(average_rating=Avg('reviews__rating'), total_reviews=Count('reviews')) \
         .order_by('-created_at')
@@ -357,6 +366,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         'brand__slug': ['exact'],
         'price': ['gte', 'lte'],
         'product_type': ['exact'],
+        'show_on_home': ['exact'],
     }
     search_fields = ['title', 'description', 'brand__name']
     ordering_fields = ['price', 'created_at', 'average_rating']

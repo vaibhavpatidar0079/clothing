@@ -1,0 +1,14 @@
+# 1. Navigate to your project directory
+cd "c:\Users\patid\project_backup\1_Project\experiments\clothing\clothing9-gemini-app"
+
+# 2. Check what files have changed
+git status
+
+# 3. Add all changed files to staging
+git add .
+
+# 4. Commit your changes with a message
+git commit -m "Your commit message here"
+
+# 5. Push to GitHub
+git push origin main

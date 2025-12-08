@@ -15,7 +15,7 @@ const HomePage = () => {
   useEffect(() => {
     const fetchTrending = async () => {
       try {
-        const response = await api.get('products/?ordering=-created_at&page_size=4');
+        const response = await api.get('products/?ordering=-created_at&page_size=4&show_on_home=true');
         setTrendingProducts(response.data.results || []);
       } catch (error) {
         console.error("Failed to fetch products", error);
@@ -27,7 +27,7 @@ const HomePage = () => {
 
     const fetchCategories = async () => {
       try {
-        const response = await api.get('categories/');
+        const response = await api.get('categories/?show_on_home=true');
         let categoriesData = response.data;
         if (categoriesData && categoriesData.results) {
           categoriesData = categoriesData.results;
