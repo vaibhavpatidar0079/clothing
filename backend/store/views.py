@@ -14,18 +14,21 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django_filters.rest_framework import DjangoFilterBackend
+import random
+import string
 
 from .models import (
     User, Address, Category, Brand, Product, ProductSize, ProductVariant,
-    Cart, CartItem, Order, OrderItem, Review, Coupon, Wishlist
+    Cart, CartItem, Order, OrderItem, Review, Coupon, Wishlist, PasswordResetOTP, ReturnRequest
 )
 from .serializers import (
     UserSerializer, AddressSerializer,
     CategorySerializer, BrandSerializer,
     ProductListSerializer, ProductDetailSerializer,
     CartSerializer, CartItemSerializer,
-    OrderSerializer, ReviewSerializer
+    OrderSerializer, ReviewSerializer, ReturnRequestSerializer
 )
+from .emails import send_otp_email
 
 # -----------------------------------------------------------------------------
 # 1. AUTHENTICATION & USERS
@@ -33,7 +36,7 @@ from .serializers import (
 
 class AuthViewSet(viewsets.ViewSet):
     """
-    Handles Registration and Manual Login/Refresh logic.
+    Handles Registration, Manual Login/Refresh, and Password Reset logic.
     Rate limited to prevent abuse.
     """
     permission_classes = [AllowAny]
@@ -134,6 +137,106 @@ class AuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+    @action(detail=False, methods=['post'], url_path='password/request-otp')
+    def request_password_reset(self, request):
+        """
+        Step 1: Request OTP for password reset.
+        """
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Don't reveal if user exists or not for security
+            return Response(
+                {'message': 'If an account exists with this email, an OTP has been sent.'},
+                status=status.HTTP_200_OK
+            )
+
+        # Invalidate old unused OTPs for this user
+        PasswordResetOTP.objects.filter(user=user, is_used=False).update(is_used=True)
+
+        # Generate new 6-digit OTP
+        otp_code = ''.join(random.choices(string.digits, k=6))
+        
+        # Save OTP to DB
+        PasswordResetOTP.objects.create(user=user, otp=otp_code)
+
+        # Send Email
+        send_otp_email(user.email, otp_code)
+
+        return Response(
+            {'message': 'If an account exists with this email, an OTP has been sent.'},
+            status=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=['post'], url_path='password/verify-otp')
+    def verify_otp(self, request):
+        """
+        Step 2: Verify the OTP before allowing password change.
+        """
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+
+        if not email or not otp:
+            return Response({'error': 'Email and OTP are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=email)
+            # Get the latest unused OTP
+            reset_otp = PasswordResetOTP.objects.filter(user=user, is_used=False).first() # Ordering is -created_at
+            
+            if not reset_otp or reset_otp.otp != otp:
+                return Response({'error': 'Invalid OTP.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not reset_otp.is_valid():
+                return Response({'error': 'OTP has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({'message': 'OTP verified successfully.'}, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid request.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='password/reset')
+    def reset_password(self, request):
+        """
+        Step 3: Reset password using verified OTP.
+        """
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+        new_password = request.data.get('new_password')
+
+        if not all([email, otp, new_password]):
+            return Response(
+                {'error': 'Email, OTP, and new password are required.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(email=email)
+            reset_otp = PasswordResetOTP.objects.filter(user=user, is_used=False).first()
+
+            if not reset_otp or reset_otp.otp != otp:
+                return Response({'error': 'Invalid OTP.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not reset_otp.is_valid():
+                return Response({'error': 'OTP has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Reset Password
+            user.set_password(new_password)
+            user.save()
+
+            # Mark OTP as used
+            reset_otp.is_used = True
+            reset_otp.save()
+
+            return Response({'message': 'Password reset successfully.'}, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid request.'}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class UserViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
@@ -151,7 +254,7 @@ class UserViewSet(viewsets.GenericViewSet):
             serializer.save()
             return Response(serializer.data)
 
-
+ 
 class AddressViewSet(viewsets.ModelViewSet):
     serializer_class = AddressSerializer
     permission_classes = [IsAuthenticated]
@@ -424,6 +527,117 @@ class OrderViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    @action(detail=True, methods=['post'])
+    def review_order(self, request, pk=None):
+        """Add a review for a delivered order item"""
+        order = self.get_object()
+        
+        if order.order_status != 'delivered':
+            return Response(
+                {'error': 'Only delivered orders can be reviewed'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        order_item_id = request.data.get('order_item_id')
+        if not order_item_id:
+            return Response(
+                {'error': 'order_item_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_item = OrderItem.objects.get(id=order_item_id, order=order)
+        except OrderItem.DoesNotExist:
+            return Response(
+                {'error': 'Order item not found in this order'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Create the review
+        review_data = request.data.copy()
+        review_data['order_item'] = order_item.id
+        review_data['product'] = order_item.product.id
+        
+        serializer = ReviewSerializer(data=review_data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def request_return(self, request, pk=None):
+        """Request a return for a delivered order"""
+        order = self.get_object()
+        
+        if order.order_status != 'delivered':
+            return Response(
+                {'error': 'Only delivered orders can request returns'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if return window is still open (70 seconds for debugging)
+        if not order.can_request_return():
+            return Response(
+                {'error': 'Return request window has expired. You have 70 seconds from delivery to request a return.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        order_item_id = request.data.get('order_item_id')
+        if not order_item_id:
+            return Response(
+                {'error': 'order_item_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_item = OrderItem.objects.get(id=order_item_id, order=order)
+        except OrderItem.DoesNotExist:
+            return Response(
+                {'error': 'Order item not found in this order'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if return request already exists
+        existing_return = ReturnRequest.objects.filter(
+            order=order, 
+            order_item=order_item,
+            status__in=['requested', 'approved']
+        ).exists()
+        
+        if existing_return:
+            return Response(
+                {'error': 'A return request already exists for this item'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the return request
+        return_data = request.data.copy()
+        return_data['order'] = order.id
+        return_data['order_item'] = order_item.id
+        
+        serializer = ReturnRequestSerializer(data=return_data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def validate_coupon(self, request):
+        """Validate a coupon code without creating an order (used by frontend)."""
+        coupon_code = request.data.get('coupon_code')
+        if not coupon_code:
+            return Response({'valid': False, 'error': 'No coupon code provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            coupon_obj = Coupon.objects.get(code=coupon_code, active=True, valid_to__gte=timezone.now())
+            # Simple demo discount calculation; in real app this would depend on coupon type
+            discount = Decimal('100')
+            return Response({'valid': True, 'discount': str(discount), 'coupon': coupon_obj.code}, status=status.HTTP_200_OK)
+        except Coupon.DoesNotExist:
+            return Response({'valid': False, 'error': 'Invalid or expired coupon'}, status=status.HTTP_404_NOT_FOUND)
+
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """
@@ -498,7 +712,15 @@ class OrderViewSet(viewsets.ModelViewSet):
                 # Assuming valid for demo
                 discount_amount = Decimal('100') # Mock calculation
             except Coupon.DoesNotExist:
-                pass
+                coupon_obj = None
+
+        # Payment method handling
+        payment_method = (request.data.get('payment_method') or 'CARD').upper()
+        # For COD leave payment_status pending; for online methods mock success
+        if payment_method == 'COD':
+            payment_status = 'pending'
+        else:
+            payment_status = 'paid'
         
         total_amount = subtotal + tax_amount + shipping_cost - discount_amount
 
@@ -512,8 +734,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             shipping_cost=shipping_cost,
             discount_amount=discount_amount,
             coupon=coupon_obj,
-            order_status='pending',
-            payment_status='paid' # Mocking Payment Gateway Success
+            order_status='processing',
+            payment_status=payment_status,
+            payment_method=payment_method
         )
 
         # 4. Create Items & Deduct Stock
@@ -550,10 +773,119 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         product_id = self.request.query_params.get('product_id')
+        order_item_id = self.request.query_params.get('order_item_id')
+        
+        qs = Review.objects.select_related('user', 'product', 'order_item')
+        
         if product_id:
-            return Review.objects.filter(product_id=product_id).select_related('user')
-        return Review.objects.all()
+            qs = qs.filter(product_id=product_id)
+        
+        if order_item_id:
+            qs = qs.filter(order_item_id=order_item_id)
+        
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         # Validation handled in Serializer
         serializer.save()
+
+
+# -----------------------------------------------------------------------------
+# 6. RETURN REQUESTS
+# -----------------------------------------------------------------------------
+
+class ReturnRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = ReturnRequestSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'head']
+
+    def get_queryset(self):
+        return ReturnRequest.objects.filter(user=self.request.user) \
+            .select_related('order', 'order_item') \
+            .order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # User is set in serializer create method
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def by_order(self, request):
+        """Get return requests for a specific order"""
+        order_id = request.query_params.get('order_id')
+        if not order_id:
+            return Response(
+                {'error': 'order_id parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        returns = self.get_queryset().filter(order_id=order_id)
+        serializer = self.get_serializer(returns, many=True)
+        return Response(serializer.data)
+
+
+# -----------------------------------------------------------------------------
+# 7. WISHLIST
+# -----------------------------------------------------------------------------
+
+class WishlistViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        """Get all wishlist items for the current user"""
+        wishlist_items = Wishlist.objects.filter(user=request.user).select_related('product')
+        products = [item.product for item in wishlist_items]
+        
+        # Serialize products
+        serializer = ProductListSerializer(products, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def toggle(self, request):
+        """Toggle a product in/out of wishlist"""
+        product_id = request.data.get('product_id')
+        
+        if not product_id:
+            return Response(
+                {'error': 'product_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        product = get_object_or_404(Product, id=product_id)
+        wishlist_item = Wishlist.objects.filter(user=request.user, product=product).first()
+        
+        if wishlist_item:
+            # Remove from wishlist
+            wishlist_item.delete()
+            return Response({
+                'message': 'Product removed from wishlist',
+                'in_wishlist': False
+            }, status=status.HTTP_200_OK)
+        else:
+            # Add to wishlist
+            Wishlist.objects.create(user=request.user, product=product)
+            return Response({
+                'message': 'Product added to wishlist',
+                'in_wishlist': True
+            }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def check(self, request):
+        """Check if products are in user's wishlist"""
+        product_ids = request.query_params.getlist('product_id')
+        
+        if not product_ids:
+            return Response(
+                {'error': 'product_id query parameters are required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        wishlist_product_ids = set(
+            Wishlist.objects.filter(
+                user=request.user,
+                product_id__in=product_ids
+            ).values_list('product_id', flat=True)
+        )
+        
+        return Response({
+            'wishlist_items': list(wishlist_product_ids)
+        })

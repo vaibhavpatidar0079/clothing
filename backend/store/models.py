@@ -4,6 +4,7 @@ from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 from django.utils.text import slugify
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 from mptt.models import MPTTModel, TreeForeignKey
 
 # -----------------------------------------------------------------------------
@@ -55,6 +56,33 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+class PasswordResetOTP(models.Model):
+    """
+    Stores OTPs for password reset functionality.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reset_otps')
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def is_valid(self):
+        """
+        Check if OTP is not used and within 10 minutes validity.
+        """
+        from datetime import timedelta
+        if self.is_used:
+            return False
+        # OTP valid for 10 minutes
+        expiry_time = self.created_at + timedelta(minutes=10)
+        return timezone.now() <= expiry_time
+
+    def __str__(self):
+        return f"{self.user.email} - {self.otp}"
 
 
 class Address(TimeStampedModel):
@@ -396,12 +424,14 @@ class Order(TimeStampedModel):
     coupon = models.ForeignKey(Coupon, null=True, blank=True, on_delete=models.SET_NULL)
     
     # Status
-    order_status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='pending')
+    # Default orders should start in 'processing' (not 'pending')
+    order_status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='processing')
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
     payment_method = models.CharField(max_length=50, default='CARD') # UPI, CARD, COD
     payment_id = models.CharField(max_length=100, blank=True, help_text="Stripe/Razorpay Payment Intent ID")
     
     tracking_number = models.CharField(max_length=100, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when order was marked as delivered")
     
     class Meta:
         ordering = ['-created_at']
@@ -409,6 +439,27 @@ class Order(TimeStampedModel):
     def __str__(self):
         return f"Order {self.id}"
 
+    def save(self, *args, **kwargs):
+        """Override save to set delivered_at when order is marked as delivered"""
+        # Check if order_status is changing to 'delivered'
+        if self.order_status == 'delivered' and not self.delivered_at:
+            self.delivered_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    def can_request_return(self):
+        """
+        Check if return requests are allowed for this order.
+        Returns are allowed for 70 seconds after delivery (for debugging).
+        """
+        from datetime import timedelta
+        if self.order_status != 'delivered':
+            return False
+        
+        if not self.delivered_at:
+            return False
+        
+        # Allow returns within 70 seconds of delivery
+        return timezone.now() <= self.delivered_at + timedelta(seconds=70)
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
@@ -461,6 +512,7 @@ class OrderItem(models.Model):
 class Review(TimeStampedModel):
     product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
     user = models.ForeignKey(User, related_name='reviews', on_delete=models.CASCADE)
+    order_item = models.ForeignKey(OrderItem, related_name='reviews', on_delete=models.CASCADE, null=True, blank=True, help_text="The order item being reviewed")
     rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     title = models.CharField(max_length=100)
     comment = models.TextField()
@@ -469,8 +521,11 @@ class Review(TimeStampedModel):
     helpful_votes = models.PositiveIntegerField(default=0)
     
     class Meta:
-        unique_together = ('user', 'product')
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['product', 'user']),
+            models.Index(fields=['order_item']),
+        ]
 
     def __str__(self):
         return f"{self.rating}* - {self.title}"
@@ -483,3 +538,30 @@ class Wishlist(models.Model):
 
     class Meta:
         unique_together = ('user', 'product')
+
+
+class ReturnRequest(TimeStampedModel):
+    STATUS_CHOICES = [
+        ('requested', 'Requested'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('completed', 'Completed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey('Order', related_name='return_requests', on_delete=models.CASCADE)
+    order_item = models.ForeignKey(OrderItem, related_name='return_requests', on_delete=models.CASCADE, null=True, blank=True, help_text="Specific item being returned")
+    user = models.ForeignKey(User, related_name='return_requests', on_delete=models.CASCADE)
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='requested')
+    admin_notes = models.TextField(blank=True, help_text="Notes from admin on return request")
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order', 'status']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f"ReturnRequest {self.id} for Order {self.order.id}"

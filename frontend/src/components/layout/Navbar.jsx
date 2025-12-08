@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { ShoppingBag, User, Search, Menu, X, Heart, LogOut } from 'lucide-react';
 import { logout } from '../../store/slices/authSlice';
+import { fetchWishlist } from '../../store/slices/wishlistSlice';
 import api from '../../lib/axios';
 
 const Navbar = () => {
@@ -12,6 +13,7 @@ const Navbar = () => {
   
   const { user, isAuthenticated } = useSelector((state) => state.auth);
   const { items } = useSelector((state) => state.cart);
+  const { items: wishlistItems, wishlistItemIds } = useSelector((state) => state.wishlist);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -21,6 +23,14 @@ const Navbar = () => {
 
   // Calculate Cart Quantity
   const cartCount = items?.reduce((acc, item) => acc + item.quantity, 0) || 0;
+  const wishlistCount = wishlistItemIds?.size || 0;
+
+  // Fetch wishlist on mount if authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      dispatch(fetchWishlist());
+    }
+  }, [isAuthenticated, dispatch]);
 
   // Handle Scroll Effect
   useEffect(() => {
@@ -148,6 +158,7 @@ const Navbar = () => {
                       </div>
                       <Link to="/profile" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Profile</Link>
                       <Link to="/profile?tab=orders" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Orders</Link>
+                      <Link to="/profile?tab=wishlist" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Wishlist</Link>
                       <button 
                         onClick={handleLogout}
                         className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
@@ -160,9 +171,16 @@ const Navbar = () => {
               </div>
 
               {/* Wishlist (Desktop) */}
-              <Link to="/profile?tab=wishlist" className="hidden sm:block p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-700">
-                <Heart size={20} />
-              </Link>
+              {isAuthenticated && (
+                <Link to="/profile?tab=wishlist" className="hidden sm:block p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-700 relative group">
+                  <Heart size={20} fill={wishlistCount > 0 ? 'currentColor' : 'none'} className={wishlistCount > 0 ? 'text-black' : ''} />
+                  {wishlistCount > 0 && (
+                    <span className="absolute top-0 right-0 bg-black text-white text-[10px] font-bold h-4 w-4 flex items-center justify-center rounded-full">
+                      {wishlistCount > 9 ? '9+' : wishlistCount}
+                    </span>
+                  )}
+                </Link>
+              )}
 
               {/* Cart */}
               <Link to="/cart" className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-700 relative group">

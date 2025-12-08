@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import (
     Address, Category, Brand, Product, ProductImage, ProductSize, ProductVariant,
-    Wishlist, Cart, CartItem, Order, OrderItem, Review, Coupon
+    Wishlist, Cart, CartItem, Order, OrderItem, Review, Coupon, ReturnRequest
 )
 import logging
 
@@ -49,14 +49,16 @@ class AddressSerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.ReadOnlyField(source='user.first_name')
     user_avatar = serializers.SerializerMethodField()
+    product_name = serializers.ReadOnlyField(source='product.title')
 
     class Meta:
         model = Review
         fields = (
-            'id', 'user_name', 'user_avatar', 'rating', 
-            'title', 'comment', 'created_at', 'is_verified_purchase'
+            'id', 'product', 'product_name', 'order_item',
+            'user_name', 'user_avatar', 'rating', 
+            'title', 'comment', 'created_at', 'is_verified_purchase', 'helpful_votes'
         )
-        read_only_fields = ('is_verified_purchase', 'helpful_votes')
+        read_only_fields = ('is_verified_purchase', 'helpful_votes', 'user', 'product')
 
     def get_user_avatar(self, obj):
         if obj.user.avatar:
@@ -68,10 +70,16 @@ class ReviewSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         validated_data['user'] = request.user
         
+        # Set product from order_item if not provided
+        order_item = validated_data.get('order_item')
+        if order_item:
+            validated_data['product'] = order_item.product
+        
         # Check if user actually bought this product (for 'Verified Purchase' badge)
+        product = validated_data['product']
         has_bought = OrderItem.objects.filter(
             order__user=request.user,
-            product=validated_data['product'],
+            product=product,
             order__payment_status='paid'
         ).exists()
         
@@ -349,15 +357,35 @@ class CartSerializer(serializers.ModelSerializer):
 # 6. ORDERS & CHECKOUT
 # -----------------------------------------------------------------------------
 
+class ReturnRequestSerializer(serializers.ModelSerializer):
+    order_item_product_name = serializers.ReadOnlyField(source='order_item.product_name')
+    
+    class Meta:
+        model = ReturnRequest
+        fields = (
+            'id', 'order', 'order_item', 'order_item_product_name',
+            'reason', 'status', 'admin_notes', 'created_at', 'updated_at'
+        )
+        read_only_fields = ('id', 'status', 'admin_notes', 'created_at', 'updated_at')
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
 class OrderItemSerializer(serializers.ModelSerializer):
     product_slug = serializers.ReadOnlyField(source='product.slug')
     product_image = serializers.SerializerMethodField()
+    reviews = ReviewSerializer(many=True, read_only=True)
+    return_requests = ReturnRequestSerializer(many=True, read_only=True)
     
     class Meta:
         model = OrderItem
         fields = (
-            'product_name', 'product_slug', 'product_image',
-            'variant_name', 'price_at_purchase', 'quantity', 'total'
+            'id', 'product_name', 'product_slug', 'product_image',
+            'variant_name', 'price_at_purchase', 'quantity', 'total',
+            'reviews', 'return_requests'
         )
     
     def get_product_image(self, obj):
@@ -370,21 +398,23 @@ class OrderItemSerializer(serializers.ModelSerializer):
             return None
         return None
 
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shipping_address = AddressSerializer(read_only=True)
     shipping_address_id = serializers.PrimaryKeyRelatedField(
         queryset=Address.objects.all(), write_only=True, source='shipping_address'
     )
+    return_requests = ReturnRequestSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = (
-            'id', 'created_at', 'order_status', 'payment_status', 'payment_method',
+            'id', 'created_at', 'updated_at', 'delivered_at', 'order_status', 'payment_status', 'payment_method',
             'total_amount', 'shipping_cost', 'tax_amount', 'discount_amount',
-            'shipping_address', 'shipping_address_id', 'items'
+            'shipping_address', 'shipping_address_id', 'items', 'return_requests'
         )
         read_only_fields = (
             'order_status', 'payment_status', 'total_amount', 
-            'shipping_cost', 'tax_amount', 'discount_amount'
+            'shipping_cost', 'tax_amount', 'discount_amount', 'delivered_at'
         )

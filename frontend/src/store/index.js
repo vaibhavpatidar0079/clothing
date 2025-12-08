@@ -1,6 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
+import { enableMapSet } from 'immer';
 import authReducer from './slices/authSlice';
 import cartReducer from './slices/cartSlice';
+import wishlistReducer from './slices/wishlistSlice';
+
+// Enable Immer MapSet support for Set data structures
+enableMapSet();
 
 /**
  * Industry Standard Store Setup
@@ -12,6 +17,7 @@ export const store = configureStore({
   reducer: {
     auth: authReducer,
     cart: cartReducer,
+    wishlist: wishlistReducer,
     // future slices:
     // products: productReducer,
     // ui: uiReducer (for global modals/drawers)

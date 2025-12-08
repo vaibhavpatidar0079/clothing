@@ -1,33 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { toast } from 'react-hot-toast';
 import { Check, Plus } from 'lucide-react';
 import api from '../lib/axios';
 import { clearCart } from '../store/slices/cartSlice';
 import Button from '../components/ui/Button';
-import Input from '../components/ui/Input';
+import AddressForm from '../components/forms/AddressForm';
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const [searchParams] = useSearchParams();
   const { items, totalPrice } = useSelector((state) => state.cart);
   
   const [addresses, setAddresses] = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  // New Address Form State
-  const [newAddress, setNewAddress] = useState({
-    full_name: '',
-    phone: '',
-    address_line_1: '',
-    city: '',
-    state: '',
-    pincode: '',
-    country: 'India'
-  });
+  const [editingAddressId, setEditingAddressId] = useState(null);
+  const [editingAddress, setEditingAddress] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('CARD');
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -35,7 +30,13 @@ const CheckoutPage = () => {
       return;
     }
     fetchAddresses();
-  }, [items, navigate]);
+    // Check if editing an address from URL
+    const editId = searchParams.get('edit');
+    if (editId) {
+      setEditingAddressId(parseInt(editId));
+      setShowAddressForm(true);
+    }
+  }, [items, navigate, searchParams]);
 
   const fetchAddresses = async () => {
     try {
@@ -43,44 +44,53 @@ const CheckoutPage = () => {
       // Handle both paginated and non-paginated responses
       const addressList = response.data.results || response.data;
       setAddresses(addressList);
-      if (addressList.length > 0) {
-        // Auto select default or first
-        const def = addressList.find(a => a.is_default);
-        setSelectedAddress(def ? def.id : addressList[0].id);
+      
+      // Handle URL parameter for editing
+      const editId = searchParams.get('edit');
+      if (editId) {
+        const addressToEdit = addressList.find(a => a.id === parseInt(editId));
+        if (addressToEdit) {
+          setEditingAddress(addressToEdit);
+          setEditingAddressId(parseInt(editId));
+        }
       } else {
-        setShowAddressForm(true);
+        if (addressList.length > 0) {
+          // Auto select default or first
+          const def = addressList.find(a => a.is_default);
+          setSelectedAddress(def ? def.id : addressList[0].id);
+        } else {
+          setShowAddressForm(true);
+        }
       }
     } catch (error) {
       console.error("Failed to fetch addresses:", error);
     }
   };
 
-  const handleAddressSubmit = async (e) => {
-    e.preventDefault();
+  const handleAddressSubmit = async (formData) => {
     setLoading(true);
     try {
-      const response = await api.post('addresses/', newAddress);
-      // response.data is the created address object
-      const createdAddress = response.data;
-      setAddresses([...addresses, createdAddress]);
-      setSelectedAddress(createdAddress.id);
+      if (editingAddressId) {
+        // Update existing address
+        const response = await api.patch(`addresses/${editingAddressId}/`, formData);
+        setAddresses(addresses.map(a => a.id === editingAddressId ? response.data : a));
+        toast.success("Address updated successfully");
+      } else {
+        // Create new address
+        const response = await api.post('addresses/', formData);
+        const createdAddress = response.data;
+        setAddresses([...addresses, createdAddress]);
+        setSelectedAddress(createdAddress.id);
+        toast.success("Address added successfully");
+      }
       setShowAddressForm(false);
-      toast.success("Address added successfully");
-      // Reset form
-      setNewAddress({
-        full_name: '',
-        phone: '',
-        address_line_1: '',
-        city: '',
-        state: '',
-        pincode: '',
-        country: 'India'
-      });
+      setEditingAddressId(null);
+      setEditingAddress(null);
     } catch (error) {
-      console.error("Address submission error:", error.response?.data || error.message);
+      console.error("Address submission error:", error);
       const errorMsg = error.response?.data?.detail || 
-                       Object.values(error.response?.data || {}).flat().join(', ') || 
-                       "Failed to add address";
+                       Object.values(error.response?.data || {}).flat().join(', ') ||
+                       "Failed to save address";
       toast.error(errorMsg);
     } finally {
       setLoading(false);
@@ -98,7 +108,8 @@ const CheckoutPage = () => {
       // 1. Create Order
       const response = await api.post('orders/', {
         shipping_address_id: selectedAddress,
-        coupon_code: null // Implement coupon logic here if needed
+        coupon_code: appliedCoupon ? appliedCoupon.code : null,
+        payment_method: paymentMethod
       });
 
       // 2. Clear Local Cart
@@ -116,10 +127,35 @@ const CheckoutPage = () => {
     }
   };
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode) {
+      toast.error('Enter a coupon code');
+      return;
+    }
+    setLoading(true);
+    try {
+      const resp = await api.post('orders/validate_coupon/', { coupon_code: couponCode });
+      if (resp.data && resp.data.valid) {
+        setAppliedCoupon({ code: couponCode, discount: parseFloat(resp.data.discount) });
+        toast.success('Coupon applied');
+      } else {
+        setAppliedCoupon(null);
+        toast.error(resp.data?.error || 'Invalid coupon');
+      }
+    } catch (err) {
+      console.error(err);
+      setAppliedCoupon(null);
+      toast.error(err.response?.data?.error || 'Failed to validate coupon');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Calculations
   const shipping = totalPrice > 1000 ? 0 : 99;
   const tax = Math.round(totalPrice * 0.18);
-  const finalTotal = parseFloat(totalPrice) + shipping + tax;
+  const discountAmount = appliedCoupon ? Number(appliedCoupon.discount || 0) : 0;
+  const finalTotal = parseFloat(totalPrice) + shipping + tax - discountAmount;
 
   return (
     <div className="container mx-auto px-4 md:px-6 py-8">
@@ -144,60 +180,17 @@ const CheckoutPage = () => {
             </h2>
 
             {showAddressForm ? (
-              <form onSubmit={handleAddressSubmit} className="bg-gray-50 p-6 rounded-sm border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <Input 
-                    label="Full Name" 
-                    required 
-                    value={newAddress.full_name}
-                    onChange={e => setNewAddress({...newAddress, full_name: e.target.value})}
-                  />
-                  <Input 
-                    label="Phone" 
-                    required 
-                    value={newAddress.phone}
-                    onChange={e => setNewAddress({...newAddress, phone: e.target.value})}
-                  />
-                </div>
-                <Input 
-                  label="Address" 
-                  className="mb-4"
-                  required 
-                  value={newAddress.address_line_1}
-                  onChange={e => setNewAddress({...newAddress, address_line_1: e.target.value})}
-                />
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <Input 
-                    label="City" 
-                    required 
-                    value={newAddress.city}
-                    onChange={e => setNewAddress({...newAddress, city: e.target.value})}
-                  />
-                  <Input 
-                    label="Pincode" 
-                    required 
-                    value={newAddress.pincode}
-                    onChange={e => setNewAddress({...newAddress, pincode: e.target.value})}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <Input 
-                    label="State" 
-                    required 
-                    value={newAddress.state}
-                    onChange={e => setNewAddress({...newAddress, state: e.target.value})}
-                  />
-                  <Input 
-                    label="Country" 
-                    disabled
-                    value={newAddress.country}
-                  />
-                </div>
-                <div className="flex gap-4">
-                  <Button type="submit" isLoading={loading}>Save Address</Button>
-                  <Button type="button" variant="outline" onClick={() => setShowAddressForm(false)}>Cancel</Button>
-                </div>
-              </form>
+              <AddressForm
+                onSubmit={handleAddressSubmit}
+                onCancel={() => {
+                  setShowAddressForm(false);
+                  setEditingAddressId(null);
+                  setEditingAddress(null);
+                }}
+                loading={loading}
+                initialAddress={editingAddress}
+                isEditing={!!editingAddressId}
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {addresses.map(addr => (
@@ -227,17 +220,28 @@ const CheckoutPage = () => {
           {/* Payment Method (Mock) */}
           <section>
             <h2 className="text-xl font-bold mb-4">Payment Method</h2>
-            <div className="p-4 border border-gray-200 rounded-sm bg-gray-50">
+            <div className="p-4 border border-gray-200 rounded-sm bg-gray-50 space-y-3">
               <label className="flex items-center space-x-3">
-                <input type="radio" checked readOnly className="h-4 w-4 text-black focus:ring-black" />
+                <input type="radio" name="payment" value="CARD" checked={paymentMethod === 'CARD'} onChange={() => setPaymentMethod('CARD')} className="h-4 w-4 text-black focus:ring-black" />
                 <span className="font-medium">Credit / Debit Card (Simulated)</span>
               </label>
-              <div className="mt-4 pl-7">
-                <div className="bg-white p-3 border border-gray-200 rounded text-sm text-gray-500">
-                  <p>Card ending in 4242</p>
-                  <p>Expiry: 12/25</p>
+              <label className="flex items-center space-x-3">
+                <input type="radio" name="payment" value="GPAY" checked={paymentMethod === 'GPAY'} onChange={() => setPaymentMethod('GPAY')} className="h-4 w-4 text-black focus:ring-black" />
+                <span className="font-medium">GPay / UPI (Simulated)</span>
+              </label>
+              <label className="flex items-center space-x-3">
+                <input type="radio" name="payment" value="COD" checked={paymentMethod === 'COD'} onChange={() => setPaymentMethod('COD')} className="h-4 w-4 text-black focus:ring-black" />
+                <span className="font-medium">Cash on Delivery (COD)</span>
+              </label>
+
+              {paymentMethod === 'CARD' && (
+                <div className="mt-4 pl-7">
+                  <div className="bg-white p-3 border border-gray-200 rounded text-sm text-gray-500">
+                    <p>Card ending in 4242 (demo)</p>
+                    <p>Expiry: 12/25</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </section>
         </div>
@@ -286,6 +290,23 @@ const CheckoutPage = () => {
                 <span className="text-gray-600">Taxes</span>
                 <span>₹{tax}</span>
               </div>
+            </div>
+
+            {/* Coupon Input */}
+            <div className="mt-4 mb-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(e) => setCouponCode(e.target.value)}
+                  placeholder="Coupon code"
+                  className="flex-1 p-2 border rounded-sm"
+                />
+                <button onClick={handleApplyCoupon} className="px-4 py-2 bg-black text-white rounded-sm">Apply</button>
+              </div>
+              {appliedCoupon && (
+                <div className="text-sm text-green-700 mt-2">Applied: {appliedCoupon.code} - ₹{appliedCoupon.discount}</div>
+              )}
             </div>
 
             <div className="border-t border-gray-200 pt-4 mt-4 flex justify-between font-bold text-lg">

@@ -31,6 +31,7 @@ env = environ.Env(
     REDIS_URL=(str, 'redis://localhost:6379/1'),
     CORS_ALLOWED_ORIGINS=(list, ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8000']),
     USE_S3=(bool, False),
+    RESEND_API_KEY=(str, ''),
 )
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -211,6 +212,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Resend API Key
+RESEND_API_KEY = env('RESEND_API_KEY')
 
 if env('USE_S3'):
     # AWS S3 Settings for Production

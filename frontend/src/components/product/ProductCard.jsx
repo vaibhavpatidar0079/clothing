@@ -1,14 +1,70 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { toggleWishlist, checkWishlistItems, addToWishlistOptimistic, removeFromWishlistOptimistic } from '../../store/slices/wishlistSlice';
+import { toast } from 'react-hot-toast';
 
 const ProductCard = ({ product }) => {
+  const dispatch = useDispatch();
+  const { isAuthenticated } = useSelector(state => state.auth);
+  const { wishlistItemIds } = useSelector(state => state.wishlist);
+  
+  const [isToggling, setIsToggling] = useState(false);
+  
+  // Directly compute from Redux state - no extra useState needed
+  const isInWishlist = wishlistItemIds.has(product.id);
+
   if (!product) return null;
 
   // Calculate discount percentage if not provided
   const discountPercent = product.discount_price 
     ? Math.round(((product.price - product.discount_price) / product.price) * 100)
     : 0;
+
+  const handleWishlistToggle = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    if (!isAuthenticated) {
+      toast.error('Please login to add items to wishlist');
+      return;
+    }
+
+    setIsToggling(true);
+    const previousInWishlist = isInWishlist;
+    const willBeAdded = !isInWishlist;
+    
+    try {
+      // Optimistic update
+      if (willBeAdded) {
+        dispatch(addToWishlistOptimistic(product.id));
+      } else {
+        dispatch(removeFromWishlistOptimistic(product.id));
+      }
+      
+      // Make API call
+      await dispatch(toggleWishlist(product.id)).unwrap();
+      
+      if (willBeAdded) {
+        toast.success('Added to wishlist');
+      } else {
+        toast.success('Removed from wishlist');
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      if (previousInWishlist) {
+        dispatch(addToWishlistOptimistic(product.id));
+      } else {
+        dispatch(removeFromWishlistOptimistic(product.id));
+      }
+      toast.error(error.message || 'Failed to update wishlist');
+    } finally {
+      setIsToggling(false);
+    }
+  };
 
   return (
     <div className="group relative">
@@ -21,8 +77,17 @@ const ProductCard = ({ product }) => {
         )}
         
         {/* Wishlist Button */}
-        <button className="absolute top-2 right-2 z-10 p-2 rounded-full bg-white/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white text-gray-900">
-          <Heart size={18} />
+        <button 
+          onClick={handleWishlistToggle}
+          disabled={isToggling}
+          className="absolute top-2 right-2 z-10 p-2 rounded-full bg-white/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white text-gray-900 disabled:opacity-50"
+        >
+          <Heart 
+            size={18} 
+            fill={isInWishlist ? 'currentColor' : 'none'}
+            stroke={isInWishlist ? 'currentColor' : 'currentColor'}
+            className={isInWishlist ? 'text-red-500' : ''}
+          />
         </button>
 
         {/* Image */}

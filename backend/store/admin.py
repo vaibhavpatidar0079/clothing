@@ -7,7 +7,7 @@ from django.db.models import Sum, Count
 from mptt.admin import DraggableMPTTAdmin
 from .models import (
     User, Address, Category, Brand, Product, ProductImage, ProductSize, ProductVariant,
-    Wishlist, Cart, CartItem, Order, OrderItem, Review, Coupon
+    Wishlist, Cart, CartItem, Order, OrderItem, Review, Coupon, ReturnRequest
 )
 
 # -----------------------------------------------------------------------------
@@ -259,13 +259,23 @@ class OrderItemInline(admin.TabularInline):
     get_total_display.short_description = 'Total'
 
 
+class ReturnRequestInline(admin.TabularInline):
+    model = ReturnRequest
+    extra = 0
+    readonly_fields = ('user', 'created_at', 'updated_at')
+    fields = ('order_item', 'reason', 'status', 'admin_notes', 'created_at', 'updated_at')
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'get_total_amount', 'order_status', 'payment_status', 'created_at')
     list_filter = ('order_status', 'payment_status', 'created_at')
     search_fields = ('id', 'user__email', 'tracking_number')
     readonly_fields = ('id', 'tax_amount', 'shipping_cost', 'discount_amount', 'created_at', 'updated_at')
-    inlines = [OrderItemInline]
+    inlines = [OrderItemInline, ReturnRequestInline]
     
     fieldsets = (
         (_('Order Info'), {
@@ -298,7 +308,12 @@ class OrderAdmin(admin.ModelAdmin):
     mark_shipped.short_description = "Mark selected orders as shipped"
     
     def mark_delivered(self, request, queryset):
-        queryset.update(order_status='delivered', payment_status='paid')
+        from django.utils import timezone
+        # Use save() instead of update() so the save() method triggers and sets delivered_at
+        for order in queryset:
+            order.order_status = 'delivered'
+            order.payment_status = 'paid'
+            order.save()
     mark_delivered.short_description = "Mark selected orders as delivered"
 
 
@@ -315,9 +330,29 @@ class CouponAdmin(admin.ModelAdmin):
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
-    list_display = ('product', 'user', 'rating', 'is_verified_purchase', 'created_at')
+    list_display = ('product', 'user', 'order_item', 'rating', 'is_verified_purchase', 'created_at')
     list_filter = ('rating', 'is_verified_purchase', 'created_at')
-    search_fields = ('product__title', 'user__email', 'title')
+    search_fields = ('product__title', 'user__email', 'title', 'order_item__id')
+    readonly_fields = ('user', 'is_verified_purchase', 'created_at', 'updated_at')
+
+
+@admin.register(ReturnRequest)
+class ReturnRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'order', 'order_item', 'user', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('order__id', 'user__email', 'reason', 'order_item__product_name')
+    readonly_fields = ('user', 'created_at', 'updated_at')
+    fields = ('order', 'order_item', 'user', 'reason', 'status', 'admin_notes', 'created_at', 'updated_at')
+    
+    actions = ['approve_returns', 'reject_returns']
+    
+    def approve_returns(self, request, queryset):
+        queryset.update(status='approved')
+    approve_returns.short_description = "Approve selected return requests"
+    
+    def reject_returns(self, request, queryset):
+        queryset.update(status='rejected')
+    reject_returns.short_description = "Reject selected return requests"
 
 
 @admin.register(Wishlist)
