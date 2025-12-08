@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
-import { Star, Truck, Shield, Ruler } from 'lucide-react';
+import { Star, Truck, Shield, Ruler, User, ThumbsUp, CheckCircle2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../lib/axios';
 import { addToCart } from '../store/slices/cartSlice';
@@ -19,15 +19,8 @@ const ProductDetailPage = () => {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    // In real app, fetch by slug. Using ID for demo simplicity if slug not setup perfectly in backend
-    // Assuming backend supports slug lookup: api.get(`products/${slug}/`)
-    // If using ID logic in url, parse it.
-    
-    // For this example, we'll try to fetch by ID from the slug if it's "id-slug" format, 
-    // or just search.
     const fetchProduct = async () => {
       try {
-        // Mocking the behavior: If slug is just an ID, use it.
         const response = await api.get(`products/${slug}/`);
         setProduct(response.data);
       } catch (error) {
@@ -43,7 +36,6 @@ const ProductDetailPage = () => {
   const handleAddToCart = async () => {
     if (!product) return;
     
-    // Check if variants exist (e.g. sizes) and none selected
     const hasVariants = product.variants && product.variants.length > 0;
     if (hasVariants && !selectedSize) {
       toast.error('Please select a size');
@@ -52,7 +44,6 @@ const ProductDetailPage = () => {
 
     setAdding(true);
     try {
-      // Find variant ID if selected
       const variant = hasVariants 
         ? product.variants.find(v => v.size === selectedSize) 
         : null;
@@ -65,7 +56,6 @@ const ProductDetailPage = () => {
 
       toast.success('Added to bag');
     } catch (error) {
-      // If 401, redirect to login
       if (error?.code === 'token_not_valid' || error?.detail?.includes('Authentication')) {
          toast.error("Please login to shop");
          navigate('/login');
@@ -80,11 +70,9 @@ const ProductDetailPage = () => {
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
   if (!product) return <div className="h-screen flex items-center justify-center">Product not found</div>;
 
-  // Helper to ensure image URLs are absolute
   const getImageUrl = (url) => {
     if (!url) return null;
     if (url.startsWith('http')) return url;
-    // If relative URL, prepend backend URL
     const baseUrl = import.meta.env.VITE_API_URL?.replace('/api/v1/', '') || 'http://localhost:8000';
     return `${baseUrl}${url}`;
   };
@@ -93,9 +81,15 @@ const ProductDetailPage = () => {
     ? product.images.map(img => getImageUrl(img.image)).filter(Boolean)
     : product.primary_image ? [getImageUrl(product.primary_image)] : [];
 
+  // Calculate actual ratings from reviews if available, else fallback to product average
+  const reviews = product.reviews || [];
+  const reviewCount = reviews.length;
+  const averageRating = product.average_rating || 0;
+
   return (
     <div className="container mx-auto px-4 md:px-6 py-12">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20">
+      {/* Product Main Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20 mb-20">
         
         {/* Image Gallery */}
         <div className="space-y-4">
@@ -105,9 +99,9 @@ const ProductDetailPage = () => {
               src={images[selectedImage]} 
               alt={product.title} 
               className="h-full w-full object-cover object-center"
-                onError={(e) => {
-                  e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop';
-                }}
+              onError={(e) => {
+                e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop';
+              }}
             />
             ) : (
               <div className="h-full w-full flex items-center justify-center text-gray-400">
@@ -116,22 +110,20 @@ const ProductDetailPage = () => {
             )}
           </div>
           {images.length > 1 && (
-            <div className="flex gap-4 overflow-x-auto pb-2">
+            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
               {images.map((img, idx) => (
                 <button
                   key={idx}
                   onClick={() => setSelectedImage(idx)}
-                  className={`relative flex-shrink-0 h-24 w-20 overflow-hidden rounded-sm border-2 ${
-                    selectedImage === idx ? 'border-black' : 'border-transparent'
+                  className={`relative flex-shrink-0 h-24 w-20 overflow-hidden rounded-sm border-2 transition-all ${
+                    selectedImage === idx ? 'border-black opacity-100' : 'border-transparent opacity-70 hover:opacity-100'
                   }`}
                 >
                   <img 
                     src={img} 
                     alt="" 
                     className="h-full w-full object-cover"
-                    onError={(e) => {
-                      e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop';
-                    }}
+                    onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop'; }}
                   />
                 </button>
               ))}
@@ -142,7 +134,7 @@ const ProductDetailPage = () => {
         {/* Product Info */}
         <div className="flex flex-col">
           <div className="mb-2">
-             <span className="text-sm text-gray-500 uppercase tracking-wider">{product.brand_name}</span>
+             <span className="text-sm text-gray-500 uppercase tracking-wider font-medium">{product.brand_name || 'Aura Premium'}</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-serif font-bold text-gray-900 mb-4">{product.title}</h1>
           
@@ -151,7 +143,7 @@ const ProductDetailPage = () => {
              {product.discount_price && (
                <>
                  <span className="text-lg text-gray-400 line-through">₹{product.price?.toLocaleString()}</span>
-                 <span className="text-sm font-bold text-green-700">
+                 <span className="text-xs font-bold text-white bg-red-600 px-2 py-1 rounded-sm">
                     {Math.round(((product.price - product.discount_price)/product.price)*100)}% OFF
                  </span>
                </>
@@ -161,10 +153,12 @@ const ProductDetailPage = () => {
           <div className="flex items-center gap-2 mb-8 text-sm">
             <div className="flex text-yellow-500">
                {[...Array(5)].map((_, i) => (
-                 <Star key={i} size={16} fill={i < (product.average_rating || 4) ? "currentColor" : "none"} />
+                 <Star key={i} size={16} fill={i < Math.round(averageRating) ? "currentColor" : "none"} />
                ))}
             </div>
-            <span className="text-gray-500">({product.reviews?.length || 12} Reviews)</span>
+            <a href="#reviews" className="text-gray-500 hover:text-black hover:underline transition-colors">
+              ({reviewCount} {reviewCount === 1 ? 'Review' : 'Reviews'})
+            </a>
           </div>
 
           <div className="h-px bg-gray-200 my-6"></div>
@@ -174,7 +168,7 @@ const ProductDetailPage = () => {
             <div className="mb-8">
               <div className="flex justify-between items-center mb-4">
                 <span className="font-medium text-gray-900">Select Size</span>
-                <button className="text-xs text-gray-500 underline flex items-center gap-1">
+                <button className="text-xs text-gray-500 underline flex items-center gap-1 hover:text-black">
                   <Ruler size={14}/> Size Guide
                 </button>
               </div>
@@ -185,11 +179,11 @@ const ProductDetailPage = () => {
                     onClick={() => setSelectedSize(variant.size)}
                     disabled={variant.stock_count === 0}
                     className={`
-                      h-12 w-12 flex items-center justify-center border rounded-sm transition-all
+                      h-12 min-w-[3rem] px-2 flex items-center justify-center border rounded-sm transition-all
                       ${selectedSize === variant.size 
-                        ? 'bg-black text-white border-black' 
+                        ? 'bg-black text-white border-black ring-2 ring-black ring-offset-1' 
                         : 'bg-white text-gray-900 border-gray-200 hover:border-gray-900'}
-                      ${variant.stock_count === 0 ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}
+                      ${variant.stock_count === 0 ? 'opacity-40 cursor-not-allowed bg-gray-50 line-through decoration-gray-400' : ''}
                     `}
                   >
                     {variant.size}
@@ -212,40 +206,130 @@ const ProductDetailPage = () => {
                 ? 'Out of Stock' 
                 : 'Add to Bag'}
             </Button>
-            <p className="text-xs text-center text-gray-500">
-              Free shipping on orders over ₹1,000.
+            <p className="text-xs text-center text-gray-500 flex items-center justify-center gap-1">
+              <Truck size={14} /> Free shipping on orders over ₹1,000.
             </p>
           </div>
 
-          {/* Details Tabs/Accordion */}
+          {/* Details Accordion style */}
           <div className="space-y-6 text-sm text-gray-600">
-             <div className="bg-gray-50 p-4 rounded-sm">
-                <h3 className="font-bold text-gray-900 mb-2">Description</h3>
+             <div className="bg-gray-50 p-6 rounded-sm">
+                <h3 className="font-bold text-gray-900 mb-2 uppercase tracking-wide text-xs">Description</h3>
                 <p className="leading-relaxed">{product.description}</p>
              </div>
              
-             <div className="grid grid-cols-2 gap-4">
+             <div className="grid grid-cols-2 gap-6 p-4 border border-gray-100 rounded-sm">
                <div>
-                 <span className="block font-bold text-gray-900">Fabric</span>
+                 <span className="block font-bold text-gray-900 mb-1 uppercase tracking-wide text-xs">Fabric</span>
                  <span>{product.fabric || 'Cotton Blend'}</span>
                </div>
                <div>
-                 <span className="block font-bold text-gray-900">Care</span>
+                 <span className="block font-bold text-gray-900 mb-1 uppercase tracking-wide text-xs">Care</span>
                  <span>{product.care_instructions || 'Dry Clean Only'}</span>
+               </div>
+               <div>
+                 <span className="block font-bold text-gray-900 mb-1 uppercase tracking-wide text-xs">Fit</span>
+                 <span>{product.fit || 'Regular Fit'}</span>
+               </div>
+               <div>
+                 <span className="block font-bold text-gray-900 mb-1 uppercase tracking-wide text-xs">Occasion</span>
+                 <span>{product.occasion || 'Casual'}</span>
                </div>
              </div>
 
              <div className="flex gap-6 pt-4 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                   <Truck size={18}/> <span>Fast Delivery</span>
+                <div className="flex items-center gap-2 text-green-700">
+                   <Truck size={18}/> <span className="font-medium">Fast Delivery</span>
                 </div>
-                <div className="flex items-center gap-2">
-                   <Shield size={18}/> <span>Genuine Product</span>
+                <div className="flex items-center gap-2 text-green-700">
+                   <Shield size={18}/> <span className="font-medium">100% Authentic</span>
                 </div>
              </div>
           </div>
-
         </div>
+      </div>
+
+      {/* Reviews Section */}
+      <div id="reviews" className="border-t border-gray-200 pt-16 max-w-4xl mx-auto">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+          <div>
+            <h2 className="text-3xl font-serif font-bold text-gray-900">Customer Reviews</h2>
+            <div className="flex items-center gap-3 mt-2">
+              <div className="flex text-yellow-500">
+                {[...Array(5)].map((_, i) => (
+                  <Star key={i} size={20} fill={i < Math.round(averageRating) ? "currentColor" : "none"} />
+                ))}
+              </div>
+              <p className="text-lg font-medium">
+                {averageRating ? averageRating.toFixed(1) : '0.0'} 
+                <span className="text-gray-500 font-normal ml-1">based on {reviewCount} reviews</span>
+              </p>
+            </div>
+          </div>
+          
+          <Button variant="outline">Write a Review</Button>
+        </div>
+
+        {reviews.length === 0 ? (
+          <div className="bg-gray-50 rounded-sm p-12 text-center">
+            <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-white mb-4 shadow-sm">
+              <Star className="h-8 w-8 text-yellow-400" fill="currentColor" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">No reviews yet</h3>
+            <p className="text-gray-500 mb-6">Be the first to review this product and let others know what you think.</p>
+            <Button>Write First Review</Button>
+          </div>
+        ) : (
+          <div className="grid gap-8">
+            {reviews.map((review) => (
+              <div key={review.id} className="border-b border-gray-100 pb-8 last:border-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-4">
+                    {/* User Avatar */}
+                    {review.user_avatar ? (
+                      <img src={review.user_avatar} alt={review.user_name} className="h-12 w-12 rounded-full object-cover" />
+                    ) : (
+                      <div className="h-12 w-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+                        <User size={24} />
+                      </div>
+                    )}
+                    
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-900 text-base">{review.user_name || 'Anonymous'}</span>
+                        {review.is_verified_purchase && (
+                          <span className="flex items-center gap-1 text-[10px] uppercase font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full tracking-wider border border-green-100">
+                            <CheckCircle2 size={10} /> Verified
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm text-gray-500">
+                        {new Date(review.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex text-yellow-500 mb-3">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} size={16} fill={i < review.rating ? "currentColor" : "none"} />
+                  ))}
+                </div>
+
+                <h3 className="font-bold text-lg text-gray-900 mb-2">{review.title}</h3>
+                <p className="text-gray-600 leading-relaxed mb-4 text-base">
+                  {review.comment}
+                </p>
+
+                {/* Helpful count mockup */}
+                <button className="flex items-center gap-2 text-sm text-gray-400 hover:text-black transition-colors group">
+                  <ThumbsUp size={16} className="group-hover:scale-110 transition-transform" />
+                  <span>Helpful</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
