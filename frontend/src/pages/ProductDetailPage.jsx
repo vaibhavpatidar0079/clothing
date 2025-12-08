@@ -8,7 +8,7 @@ import { addToCart } from '../store/slices/cartSlice';
 import Button from '../components/ui/Button';
 
 const ProductDetailPage = () => {
-  const { slug } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   
@@ -21,8 +21,16 @@ const ProductDetailPage = () => {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const response = await api.get(`products/${slug}/`);
-        setProduct(response.data);
+        const response = await api.get(`products/${id}/`);
+        const productData = response.data;
+        setProduct(productData);
+        
+        // Auto-select size if there's only one option
+        if (productData.sizes && productData.sizes.length === 1) {
+          setSelectedSize(productData.sizes[0].size);
+        } else if (!productData.sizes && productData.size && productData.size.trim() !== '') {
+          setSelectedSize(productData.size);
+        }
       } catch (error) {
          console.error("Fetch failed", error);
          toast.error("Could not load product");
@@ -31,31 +39,37 @@ const ProductDetailPage = () => {
       }
     };
     fetchProduct();
-  }, [slug]);
+  }, [id]);
 
   const handleAddToCart = async () => {
     if (!product) return;
     
-    const hasVariants = product.variants && product.variants.length > 0;
-    if (hasVariants && !selectedSize) {
+    // Check if sizes are available and none selected
+    const hasSizes = product.sizes && product.sizes.length > 0;
+    const hasSize = product.size && product.size.trim() !== '';
+    const requiresSizeSelection = hasSizes || hasSize;
+    
+    if (requiresSizeSelection && !selectedSize) {
       toast.error('Please select a size');
       return;
     }
 
     setAdding(true);
     try {
-      const variant = hasVariants 
-        ? product.variants.find(v => v.size === selectedSize) 
+      // Find size ID if selected
+      const selectedSizeObj = hasSizes 
+        ? product.sizes.find(s => s.size === selectedSize) 
         : null;
 
       await dispatch(addToCart({
         product_id: product.id,
-        variant_id: variant ? variant.id : null,
+        size_id: selectedSizeObj ? selectedSizeObj.id : null,
         quantity: 1
       })).unwrap();
 
       toast.success('Added to bag');
     } catch (error) {
+      // If 401, redirect to login
       if (error?.code === 'token_not_valid' || error?.detail?.includes('Authentication')) {
          toast.error("Please login to shop");
          navigate('/login');
@@ -70,9 +84,11 @@ const ProductDetailPage = () => {
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
   if (!product) return <div className="h-screen flex items-center justify-center">Product not found</div>;
 
+  // Helper to ensure image URLs are absolute
   const getImageUrl = (url) => {
     if (!url) return null;
     if (url.startsWith('http')) return url;
+    // If relative URL, prepend backend URL
     const baseUrl = import.meta.env.VITE_API_URL?.replace('/api/v1/', '') || 'http://localhost:8000';
     return `${baseUrl}${url}`;
   };
@@ -164,7 +180,7 @@ const ProductDetailPage = () => {
           <div className="h-px bg-gray-200 my-6"></div>
 
           {/* Size Selector */}
-          {product.variants && product.variants.length > 0 && (
+          {(product.sizes && product.sizes.length > 0) || product.size ? (
             <div className="mb-8">
               <div className="flex justify-between items-center mb-4">
                 <span className="font-medium text-gray-900">Select Size</span>
@@ -173,22 +189,106 @@ const ProductDetailPage = () => {
                 </button>
               </div>
               <div className="flex flex-wrap gap-3">
-                {product.variants.map((variant) => (
-                  <button
-                    key={variant.id}
-                    onClick={() => setSelectedSize(variant.size)}
-                    disabled={variant.stock_count === 0}
-                    className={`
-                      h-12 min-w-[3rem] px-2 flex items-center justify-center border rounded-sm transition-all
-                      ${selectedSize === variant.size 
-                        ? 'bg-black text-white border-black ring-2 ring-black ring-offset-1' 
-                        : 'bg-white text-gray-900 border-gray-200 hover:border-gray-900'}
-                      ${variant.stock_count === 0 ? 'opacity-40 cursor-not-allowed bg-gray-50 line-through decoration-gray-400' : ''}
-                    `}
-                  >
-                    {variant.size}
-                  </button>
-                ))}
+                {product.sizes && product.sizes.length > 0 ? (
+                  // Show sizes from ProductSize model
+                  product.sizes
+                    .filter(size => size.is_active)
+                    .map((size) => (
+                      <button
+                        key={size.id}
+                        onClick={() => setSelectedSize(size.size)}
+                        disabled={size.stock_count === 0}
+                        className={`
+                          h-12 min-w-[3rem] px-2 flex items-center justify-center border rounded-sm transition-all
+                          ${selectedSize === size.size 
+                            ? 'bg-black text-white border-black ring-2 ring-black ring-offset-1' 
+                            : 'bg-white text-gray-900 border-gray-200 hover:border-gray-900'}
+                          ${size.stock_count === 0 ? 'opacity-40 cursor-not-allowed bg-gray-50 line-through decoration-gray-400' : ''}
+                        `}
+                      >
+                        {size.size}
+                      </button>
+                    ))
+                ) : (
+                  // Show product size if no sizes but size field exists
+                  product.size && (
+                    <button
+                      onClick={() => setSelectedSize(product.size)}
+                      className={`
+                        h-12 min-w-[3rem] px-2 flex items-center justify-center border rounded-sm transition-all
+                        ${selectedSize === product.size 
+                          ? 'bg-black text-white border-black ring-2 ring-black ring-offset-1' 
+                          : 'bg-white text-gray-900 border-gray-200 hover:border-gray-900'}
+                      `}
+                    >
+                      {product.size}
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Variant Products - All Related Variants */}
+          {product.variants && product.variants.length > 0 && (
+            <div className="mb-8">
+              <div className="mb-4">
+                <span className="font-medium text-gray-900">Related Variants</span>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                {product.variants
+                  .filter(variant => variant.is_active && variant.variant_product)
+                  .map((variant) => {
+                    const variantProduct = variant.variant_product;
+                    const variantImage = variant.variant_image || variantProduct?.primary_image;
+                    const isCurrentProduct = variantProduct.id === product.id;
+                    const getImageUrl = (url) => {
+                      if (!url) return null;
+                      if (url.startsWith('http')) return url;
+                      const baseUrl = import.meta.env.VITE_API_URL?.replace('/api/v1/', '') || 'http://localhost:8000';
+                      return `${baseUrl}${url}`;
+                    };
+                    
+                    return (
+                      <button
+                        key={variant.id}
+                        onClick={() => navigate(`/product/${variantProduct.id}`)}
+                        className={`group relative flex flex-col items-center gap-2 p-3 border rounded-sm transition-all ${
+                          isCurrentProduct 
+                            ? 'border-black bg-black/5 ring-2 ring-black ring-offset-1' 
+                            : 'border-gray-200 hover:border-black'
+                        }`}
+                        title={isCurrentProduct ? 'Currently viewing' : 'View variant'}
+                      >
+                        {variantImage && (
+                          <div className={`relative w-20 h-20 overflow-hidden rounded-sm bg-gray-100 ${isCurrentProduct ? 'ring-2 ring-black' : ''}`}>
+                            <img
+                              src={getImageUrl(variantImage)}
+                              alt={variantProduct.title}
+                              className={`w-full h-full object-cover group-hover:scale-105 transition-transform ${isCurrentProduct ? 'brightness-100' : ''}`}
+                              onError={(e) => {
+                                e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop';
+                              }}
+                            />
+                            {isCurrentProduct && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                <span className="text-white text-xs font-bold uppercase tracking-widest">Active</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {variant.difference && (
+                          <span className={`text-xs font-medium uppercase tracking-wide ${
+                            isCurrentProduct 
+                              ? 'text-black font-bold' 
+                              : 'text-gray-600'
+                          }`}>
+                            {variant.difference}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -200,9 +300,13 @@ const ProductDetailPage = () => {
               className="w-full py-6 text-base" 
               onClick={handleAddToCart}
               isLoading={adding}
-              disabled={product.inventory_count === 0 && (!product.variants || product.variants.every(v => v.stock_count === 0))}
+              disabled={
+                product.inventory_count === 0 && 
+                (!product.sizes || product.sizes.every(s => s.stock_count === 0))
+              }
             >
-              {product.inventory_count === 0 && (!product.variants || product.variants.every(v => v.stock_count === 0))
+              {product.inventory_count === 0 && 
+               (!product.sizes || product.sizes.every(s => s.stock_count === 0))
                 ? 'Out of Stock' 
                 : 'Add to Bag'}
             </Button>

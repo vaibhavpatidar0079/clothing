@@ -69,7 +69,7 @@ function App() {
           <Route path="shop" element={<ProductListPage />} />
           <Route path="shop/:categorySlug" element={<ProductListPage />} />
           <Route path="categories" element={<CategoriesPage />} />
-          <Route path="product/:slug" element={<ProductDetailPage />} />
+          <Route path="product/:id" element={<ProductDetailPage />} />
           
           {/* Auth Routes */}
           <Route path="login" element={<LoginPage />} />

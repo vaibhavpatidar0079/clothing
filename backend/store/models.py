@@ -165,9 +165,13 @@ class Product(TimeStampedModel):
     discount_price = models.DecimalField(_("Selling Price"), max_digits=12, decimal_places=2, null=True, blank=True)
     tax_percent = models.DecimalField(_("GST %"), max_digits=5, decimal_places=2, default=18.00)
     
-    # Inventory
+    # Inventory & Size
     product_type = models.CharField(max_length=20, choices=PRODUCT_TYPES, default='variable')
     inventory_count = models.PositiveIntegerField(default=0, help_text="Only for simple products")
+    
+    # New Manual Size Field
+    size = models.CharField(_("Size"), max_length=100, blank=True, help_text="Manual size input (e.g. M, 42, 10-12)")
+    
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
     
@@ -201,31 +205,79 @@ class Product(TimeStampedModel):
             return int(((self.price - self.discount_price) / self.price) * 100)
         return 0
 
+    def get_all_variants(self):
+        """
+        Get all variants for this product.
+        Includes both:
+        1. Variants where this product is the main product
+        2. Variants where this product is a variant_product (i.e., this product is a variant of another)
+        """
+        from django.db.models import Q
+        # Variants of this product as main product
+        direct_variants = ProductVariant.objects.filter(product=self)
+        # Also get variants where this product is the variant_product (product is itself a variant)
+        indirect_variants = ProductVariant.objects.filter(variant_product=self)
+        
+        # Combine and return distinct
+        all_variant_ids = set(list(direct_variants.values_list('id', flat=True)) + 
+                             list(indirect_variants.values_list('id', flat=True)))
+        return ProductVariant.objects.filter(id__in=all_variant_ids)
+
     def __str__(self):
         return self.title
 
 
-class ProductVariant(models.Model):
+class ProductSize(models.Model):
     """
-    Handles Size and Color variations.
-    Each variant has its own stock and optional price override.
+    Independent size options for a product.
+    Sizes are separate from variants and can be selected independently.
     """
-    product = models.ForeignKey(Product, related_name='variants', on_delete=models.CASCADE)
-    sku = models.CharField(max_length=50, unique=True, null=True, blank=True)
-    
-    size = models.CharField(max_length=50, blank=True)  # S, M, L, XL
-    color = models.CharField(max_length=50, blank=True) # Red, Blue
-    
-    stock_count = models.PositiveIntegerField(default=0)
-    price_adjustment = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Add/Subtract from base product price")
-    
+    product = models.ForeignKey(Product, related_name='sizes', on_delete=models.CASCADE)
+    size = models.CharField(_("Size"), max_length=50)  # S, M, L, XL, 42, etc.
+    stock_count = models.PositiveIntegerField(default=0, help_text="Stock available for this size")
     is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0, help_text="Order in which sizes appear")
 
     class Meta:
-        unique_together = ('product', 'size', 'color')
+        unique_together = ('product', 'size')
+        ordering = ['sort_order', 'size']
 
     def __str__(self):
-        return f"{self.product.title} - {self.size}/{self.color}"
+        return f"{self.product.title} - {self.size}"
+
+
+class ProductVariant(models.Model):
+    """
+    Links to full Product instances as variants.
+    Variants are complete products that can be related to the main product.
+    All variants in a group relate to each other (no parent-child hierarchy).
+    """
+    product = models.ForeignKey(Product, related_name='variants', on_delete=models.CASCADE, 
+                                help_text="Main product this variant belongs to")
+    variant_product = models.ForeignKey(Product, related_name='parent_variants', on_delete=models.CASCADE,
+                                       help_text="The actual product variant (full product instance)",
+                                       null=True, blank=True)  # Temporarily nullable for migration
+    difference = models.CharField(max_length=50, blank=True, 
+                                 help_text="One word describing the difference (e.g., Color, Style, Pattern)")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Order in which variants appear")
+    is_active = models.BooleanField(default=True)
+    # Many-to-many relationship to other variants (for grouping all related variants)
+    related_variants = models.ManyToManyField(
+        'self',
+        symmetrical=True,
+        blank=True,
+        related_name='related_to_variants',
+        help_text="All variants related to this one (no parent-child hierarchy)"
+    )
+
+    class Meta:
+        unique_together = ('product', 'variant_product')
+        ordering = ['sort_order']
+
+    def __str__(self):
+        if self.variant_product:
+            return f"{self.product.title} -> {self.variant_product.title}"
+        return f"{self.product.title} -> (No variant product)"
 
 
 class ProductImage(models.Model):
@@ -287,6 +339,13 @@ class Cart(TimeStampedModel):
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    # Size is independent selection
+    selected_size = models.ForeignKey('ProductSize', null=True, blank=True, on_delete=models.SET_NULL,
+                                     help_text="Selected size (independent from variant)")
+    # Variant is a full product instance
+    variant_product = models.ForeignKey(Product, null=True, blank=True, related_name='cart_items_as_variant',
+                                      on_delete=models.SET_NULL, help_text="Variant product (full product instance)")
+    # Keep old variant field for backward compatibility during migration
     variant = models.ForeignKey(ProductVariant, null=True, blank=True, on_delete=models.SET_NULL)
     quantity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     added_at = models.DateTimeField(auto_now_add=True)
@@ -296,9 +355,14 @@ class CartItem(models.Model):
 
     @property
     def total_price(self):
-        price = self.product.final_price
+        # Use variant_product if selected, otherwise use main product
+        product_to_price = self.variant_product if self.variant_product else self.product
+        price = product_to_price.final_price
+        
+        # Backward compatibility: if old variant exists, use its price adjustment
         if self.variant:
             price += self.variant.price_adjustment
+            
         return price * self.quantity
 
 
@@ -349,6 +413,12 @@ class Order(TimeStampedModel):
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    # Size snapshot
+    selected_size = models.CharField(max_length=50, blank=True, help_text="Size selected at purchase")
+    # Variant product snapshot
+    variant_product = models.ForeignKey(Product, null=True, blank=True, related_name='order_items_as_variant',
+                                       on_delete=models.SET_NULL, help_text="Variant product used")
+    # Keep old variant for backward compatibility
     variant = models.ForeignKey(ProductVariant, null=True, blank=True, on_delete=models.SET_NULL)
     
     # Data Snapshot (Critical for history)
@@ -362,12 +432,17 @@ class OrderItem(models.Model):
     def save(self, *args, **kwargs):
         # Auto-fill snapshot data if missing
         if not self.product_name:
-            self.product_name = self.product.title
+            product_to_use = self.variant_product if self.variant_product else self.product
+            self.product_name = product_to_use.title
         if not self.price_at_purchase:
-            base = self.product.final_price
+            product_to_use = self.variant_product if self.variant_product else self.product
+            base = product_to_use.final_price
+            # Backward compatibility
             if self.variant:
                 base += self.variant.price_adjustment
                 self.variant_name = f"{self.variant.size} {self.variant.color}"
+            elif self.selected_size:
+                self.variant_name = f"Size: {self.selected_size}"
             self.price_at_purchase = base
         super().save(*args, **kwargs)
 

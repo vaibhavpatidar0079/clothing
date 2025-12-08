@@ -40,16 +40,18 @@ const CheckoutPage = () => {
   const fetchAddresses = async () => {
     try {
       const response = await api.get('addresses/');
-      setAddresses(response.data);
-      if (response.data.length > 0) {
+      // Handle both paginated and non-paginated responses
+      const addressList = response.data.results || response.data;
+      setAddresses(addressList);
+      if (addressList.length > 0) {
         // Auto select default or first
-        const def = response.data.find(a => a.is_default);
-        setSelectedAddress(def ? def.id : response.data[0].id);
+        const def = addressList.find(a => a.is_default);
+        setSelectedAddress(def ? def.id : addressList[0].id);
       } else {
         setShowAddressForm(true);
       }
     } catch (error) {
-      console.error("Failed to fetch addresses");
+      console.error("Failed to fetch addresses:", error);
     }
   };
 
@@ -58,12 +60,28 @@ const CheckoutPage = () => {
     setLoading(true);
     try {
       const response = await api.post('addresses/', newAddress);
-      setAddresses([...addresses, response.data]);
-      setSelectedAddress(response.data.id);
+      // response.data is the created address object
+      const createdAddress = response.data;
+      setAddresses([...addresses, createdAddress]);
+      setSelectedAddress(createdAddress.id);
       setShowAddressForm(false);
-      toast.success("Address added");
+      toast.success("Address added successfully");
+      // Reset form
+      setNewAddress({
+        full_name: '',
+        phone: '',
+        address_line_1: '',
+        city: '',
+        state: '',
+        pincode: '',
+        country: 'India'
+      });
     } catch (error) {
-      toast.error("Failed to add address");
+      console.error("Address submission error:", error.response?.data || error.message);
+      const errorMsg = error.response?.data?.detail || 
+                       Object.values(error.response?.data || {}).flat().join(', ') || 
+                       "Failed to add address";
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

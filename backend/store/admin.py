@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.db.models import Sum, Count
 from mptt.admin import DraggableMPTTAdmin
 from .models import (
-    User, Address, Category, Brand, Product, ProductImage, ProductVariant,
+    User, Address, Category, Brand, Product, ProductImage, ProductSize, ProductVariant,
     Wishlist, Cart, CartItem, Order, OrderItem, Review, Coupon
 )
 
@@ -141,11 +141,35 @@ class ProductImageInline(admin.TabularInline):
     image_preview.short_description = 'Preview'
 
 
+class ProductSizeInline(admin.TabularInline):
+    """
+    Independent size options for the product.
+    Sizes are separate from variants and can be selected independently.
+    """
+    model = ProductSize
+    extra = 3  # Show 3 empty forms by default
+    min_num = 0  # Allow zero sizes
+    can_delete = True  # Allow deletion of sizes
+    fields = ('size', 'stock_count', 'is_active', 'sort_order')
+    verbose_name = 'Size Option'
+    verbose_name_plural = 'Size Options'
+
+
 class ProductVariantInline(admin.TabularInline):
+    """
+    Links to full Product instances as variants.
+    Variants are complete products that can be related to the main product.
+    """
     model = ProductVariant
-    extra = 1
-    classes = ('collapse',)
-    fields = ('sku', 'size', 'color', 'stock_count', 'price_adjustment', 'is_active')
+    fk_name = 'product'  # Specify which ForeignKey to use (the main product, not variant_product)
+    extra = 1  # Show 1 empty form by default
+    min_num = 0  # Allow zero variants
+    can_delete = True  # Allow deletion of variants
+    classes = ('collapse',)  # Collapsed by default, can be expanded
+    fields = ('variant_product', 'difference', 'is_active', 'sort_order')
+    verbose_name = 'Related Product Variant'
+    verbose_name_plural = 'Related Product Variants'
+    raw_id_fields = ('variant_product',)  # Use raw ID field for better performance
 
 
 @admin.register(Product)
@@ -154,7 +178,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'is_featured', 'brand', 'category', 'created_at')
     search_fields = ('title', 'sku', 'description')
     prepopulated_fields = {'slug': ('title',)}
-    inlines = [ProductImageInline, ProductVariantInline]
+    inlines = [ProductImageInline, ProductSizeInline, ProductVariantInline]
     readonly_fields = ('created_at', 'updated_at')
     
     fieldsets = (
@@ -171,8 +195,8 @@ class ProductAdmin(admin.ModelAdmin):
             'fields': ('fabric', 'pattern', 'fit', 'occasion')
         }),
         (_('Simple Inventory'), {
-            'fields': ('product_type', 'inventory_count'),
-            'description': "Use this only if the product has no variants (sizes/colors)."
+            'fields': ('product_type', 'inventory_count', 'size'),
+            'description': "Use this only if the product has no variants (sizes/colors). Size field allows manual size input (e.g. M, 42, 10-12)."
         }),
     )
 

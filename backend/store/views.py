@@ -4,17 +4,19 @@ from django.db.models import F, Q, Avg, Count
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.utils import timezone
+from decimal import Decimal
 from rest_framework import viewsets, status, generics, permissions, filters, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import (
-    User, Address, Category, Brand, Product, ProductVariant,
+    User, Address, Category, Brand, Product, ProductSize, ProductVariant,
     Cart, CartItem, Order, OrderItem, Review, Coupon, Wishlist
 )
 from .serializers import (
@@ -160,6 +162,33 @@ class AddressViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(user=self.request.user)
+    
+    def perform_destroy(self, instance):
+        # Ensure user can only delete their own addresses
+        if instance.user != self.request.user:
+            raise PermissionDenied("You can only delete your own addresses")
+        
+        try:
+            instance.delete()
+        except Exception as e:
+            # Check if it's a protected foreign key error
+            error_str = str(e)
+            if "protected foreign keys" in error_str or "PROTECT" in error_str:
+                # Get orders using this address
+                orders_using_address = Order.objects.filter(
+                    user=self.request.user,
+                    shipping_address=instance
+                ).exclude(order_status__in=['delivered', 'cancelled', 'refunded'])
+                
+                if orders_using_address.exists():
+                    raise PermissionDenied(
+                        "This address cannot be deleted because it's used for your active orders. "
+                        "Please wait for orders to be delivered or cancelled before deleting this address."
+                    )
+            raise
 
 
 # -----------------------------------------------------------------------------
@@ -211,7 +240,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     Includes filtering, sorting, and optimization.
     """
     queryset = Product.objects.filter(is_active=True).select_related('brand', 'category') \
-        .prefetch_related('images', 'variants', 'reviews') \
+        .prefetch_related('images', 'sizes', 'variants__variant_product', 'reviews') \
         .annotate(average_rating=Avg('reviews__rating'), total_reviews=Count('reviews')) \
         .order_by('-created_at')
         
@@ -306,14 +335,19 @@ class CartViewSet(viewsets.ViewSet):
         
         if serializer.is_valid():
             product = serializer.validated_data['product']
-            variant = serializer.validated_data.get('variant')
+            selected_size = serializer.validated_data.get('selected_size')
+            variant_product = serializer.validated_data.get('variant_product')
+            variant = serializer.validated_data.get('variant')  # Backward compatibility
             quantity = serializer.validated_data['quantity']
 
             # Update existing item or create new
+            # Match by product, size, and variant_product
             cart_item, created = CartItem.objects.get_or_create(
                 cart=cart,
                 product=product,
-                variant=variant,
+                selected_size=selected_size,
+                variant_product=variant_product,
+                variant=variant,  # Backward compatibility
                 defaults={'quantity': 0}
             )
             
@@ -369,6 +403,26 @@ class OrderViewSet(viewsets.ModelViewSet):
             .prefetch_related('items__product', 'items__variant') \
             .select_related('shipping_address') \
             .order_by('-created_at')
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel an order if it's in processing status"""
+        order = self.get_object()
+        
+        # Only allow cancellation for processing orders
+        if order.order_status != 'processing':
+            return Response(
+                {'error': f'Order cannot be cancelled. Current status: {order.order_status}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        order.order_status = 'cancelled'
+        order.save()
+        
+        return Response(
+            {'message': 'Order cancelled successfully', 'data': OrderSerializer(order).data},
+            status=status.HTTP_200_OK
+        )
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -430,9 +484,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             })
 
         # 2. Financials
-        shipping_cost = 0 if subtotal > 1000 else 99
-        tax_amount = subtotal * 0.18 # 18% GST Simplified
-        discount_amount = 0 
+        shipping_cost = Decimal('0') if subtotal > Decimal('1000') else Decimal('99')
+        tax_amount = subtotal * Decimal('0.18') # 18% GST Simplified
+        discount_amount = Decimal('0')
         
         # Coupon Logic (Simplified)
         coupon_code = request.data.get('coupon_code')
@@ -442,19 +496,17 @@ class OrderViewSet(viewsets.ModelViewSet):
                 coupon_obj = Coupon.objects.get(code=coupon_code, active=True, valid_to__gte=timezone.now())
                 # ... advanced validation ...
                 # Assuming valid for demo
-                discount_amount = 100 # Mock calculation
+                discount_amount = Decimal('100') # Mock calculation
             except Coupon.DoesNotExist:
                 pass
         
-        total_amount = float(subtotal) + float(tax_amount) + shipping_cost - float(discount_amount)
+        total_amount = subtotal + tax_amount + shipping_cost - discount_amount
 
         # 3. Create Order
         order = Order.objects.create(
             user=user,
             shipping_address=address,
             billing_address=address, # Simplified
-            subtotal=subtotal, # Need to add this field to model or calculate dynamically. 
-                               # Note: Using total_amount in model currently.
             total_amount=total_amount,
             tax_amount=tax_amount,
             shipping_cost=shipping_cost,

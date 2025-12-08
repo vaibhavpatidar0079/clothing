@@ -85,6 +85,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     'store.apps.StoreConfig',   # Main E-commerce logic
+                    # New app for database scripts
     # In a real microservices-lite monorepo, you might split this:
     # 'users',
     # 'catalog',
