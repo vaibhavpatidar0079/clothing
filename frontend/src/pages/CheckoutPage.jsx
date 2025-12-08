@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { toast } from 'react-hot-toast';
+import { notifySuccess, notifyError } from '../lib/notify';
 import { Check, Plus } from 'lucide-react';
 import api from '../lib/axios';
 import { clearCart } from '../store/slices/cartSlice';
@@ -74,14 +74,14 @@ const CheckoutPage = () => {
         // Update existing address
         const response = await api.patch(`addresses/${editingAddressId}/`, formData);
         setAddresses(addresses.map(a => a.id === editingAddressId ? response.data : a));
-        toast.success("Address updated successfully");
+        notifySuccess("Address updated successfully");
       } else {
         // Create new address
         const response = await api.post('addresses/', formData);
         const createdAddress = response.data;
         setAddresses([...addresses, createdAddress]);
         setSelectedAddress(createdAddress.id);
-        toast.success("Address added successfully");
+        notifySuccess("Address added successfully");
       }
       setShowAddressForm(false);
       setEditingAddressId(null);
@@ -91,7 +91,7 @@ const CheckoutPage = () => {
       const errorMsg = error.response?.data?.detail || 
                        Object.values(error.response?.data || {}).flat().join(', ') ||
                        "Failed to save address";
-      toast.error(errorMsg);
+      notifyError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -99,7 +99,7 @@ const CheckoutPage = () => {
 
   const handlePlaceOrder = async () => {
     if (!selectedAddress) {
-      toast.error("Please select a delivery address");
+      notifyError("Please select a delivery address");
       return;
     }
 
@@ -116,12 +116,12 @@ const CheckoutPage = () => {
       dispatch(clearCart());
       
       // 3. Success & Redirect
-      toast.success("Order placed successfully!");
+      notifySuccess("Order placed successfully!");
       navigate('/profile?tab=orders');
       
     } catch (error) {
       console.error(error);
-      toast.error(error.response?.data?.error || "Order placement failed");
+      notifyError(error.response?.data?.error || "Order placement failed");
     } finally {
       setLoading(false);
     }
@@ -129,7 +129,7 @@ const CheckoutPage = () => {
 
   const handleApplyCoupon = async () => {
     if (!couponCode) {
-      toast.error('Enter a coupon code');
+      notifyError('Enter a coupon code');
       return;
     }
     setLoading(true);
@@ -137,15 +137,15 @@ const CheckoutPage = () => {
       const resp = await api.post('orders/validate_coupon/', { coupon_code: couponCode });
       if (resp.data && resp.data.valid) {
         setAppliedCoupon({ code: couponCode, discount: parseFloat(resp.data.discount) });
-        toast.success('Coupon applied');
+        notifySuccess('Coupon applied');
       } else {
         setAppliedCoupon(null);
-        toast.error(resp.data?.error || 'Invalid coupon');
+        notifyError(resp.data?.error || 'Invalid coupon');
       }
     } catch (err) {
       console.error(err);
       setAppliedCoupon(null);
-      toast.error(err.response?.data?.error || 'Failed to validate coupon');
+      notifyError(err.response?.data?.error || 'Failed to validate coupon');
     } finally {
       setLoading(false);
     }

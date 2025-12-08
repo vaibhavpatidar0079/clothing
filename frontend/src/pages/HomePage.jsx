@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Truck, ShieldCheck, RefreshCw } from 'lucide-react';
+import { ArrowRight, Truck, ShieldCheck, RefreshCw, MoveRight } from 'lucide-react';
+import { motion } from 'framer-motion';
 import ProductCard from '../components/product/ProductCard';
 import Button from '../components/ui/Button';
 import api from '../lib/axios';
@@ -15,18 +16,9 @@ const HomePage = () => {
     const fetchTrending = async () => {
       try {
         const response = await api.get('products/?ordering=-created_at&page_size=4');
-        console.log("Products API Response:", response.data);
-        const products = response.data.results || [];
-        console.log("Products count:", products.length);
-        products.forEach(p => {
-          console.log(`Product ${p.id}: ${p.title}`);
-          console.log(`  primary_image: ${p.primary_image}`);
-          console.log(`  images:`, p.images);
-        });
-        setTrendingProducts(products);
+        setTrendingProducts(response.data.results || []);
       } catch (error) {
         console.error("Failed to fetch products", error);
-        console.error("Error details:", error.response?.data);
         setTrendingProducts([]);
       } finally {
         setLoading(false);
@@ -36,25 +28,17 @@ const HomePage = () => {
     const fetchCategories = async () => {
       try {
         const response = await api.get('categories/');
-        console.log("Categories API Response:", response.data);
-        // Handle paginated response (results) or direct array
         let categoriesData = response.data;
         if (categoriesData && categoriesData.results) {
           categoriesData = categoriesData.results;
         }
-        // Ensure it's an array
-        if (!Array.isArray(categoriesData)) {
-          console.warn("Categories response is not an array:", categoriesData);
-          categoriesData = [];
-        }
-        console.log("Categories count:", categoriesData.length);
-        categoriesData.forEach(cat => {
-          console.log(`Category ${cat.id}: ${cat.name}, image: ${cat.image}, product_count: ${cat.product_count}`);
-        });
-        setCategories(categoriesData);
+        if (!Array.isArray(categoriesData)) categoriesData = [];
+        
+        // Filter out categories without images or products if needed, 
+        // but for layout stability we take the top 3 populated ones
+        setCategories(categoriesData.slice(0, 3));
       } catch (error) {
         console.error("Failed to fetch categories", error);
-        console.error("Error details:", error.response?.data);
         setCategories([]);
       } finally {
         setCategoriesLoading(false);
@@ -65,259 +49,265 @@ const HomePage = () => {
     fetchCategories();
   }, []);
 
+  // Animation variants
+  const fadeInUp = {
+    hidden: { opacity: 0, y: 30 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: "easeOut" } }
+  };
+
+  const staggerContainer = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-16 pb-16">
+    <div className="flex flex-col w-full bg-white">
       
-      {/* Hero Section */}
-      <section className="relative h-[80vh] w-full bg-gray-900 overflow-hidden">
-        {/* Background Image */}
-        <img 
-          src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?q=80&w=2070&auto=format&fit=crop" 
-          alt="Fashion Hero" 
-          className="absolute inset-0 h-full w-full object-cover opacity-60"
-        />
+      {/* HERO SECTION */}
+      <section className="relative h-[90vh] w-full bg-gray-900 overflow-hidden">
+        {/* Background Image with Parallax-like feel (static for now) */}
+        <div className="absolute inset-0">
+          <img 
+            src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?q=80&w=2070&auto=format&fit=crop" 
+            alt="Aura Collection" 
+            className="h-full w-full object-cover opacity-80"
+          />
+          {/* Gradient Overlay for text readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+        </div>
         
         {/* Content */}
-        <div className="relative h-full container mx-auto px-4 md:px-6 flex items-center">
-          <div className="max-w-xl text-white space-y-6">
-            <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-sm text-xs font-bold tracking-widest uppercase rounded-sm">
-              New Collection 2024
+        <div className="relative h-full container mx-auto px-6 md:px-12 flex flex-col justify-end pb-24 md:justify-center md:pb-0">
+          <motion.div 
+            initial="hidden"
+            animate="visible"
+            variants={fadeInUp}
+            className="max-w-2xl text-white"
+          >
+            <span className="inline-block mb-4 px-3 py-1 border border-white/30 backdrop-blur-sm text-xs font-bold tracking-[0.2em] uppercase text-white/90">
+              New Collection 2025
             </span>
-            <h1 className="text-5xl md:text-7xl font-serif font-bold leading-tight">
-              Elegance in <br/> Every Stitch
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-serif font-medium leading-none mb-6 tracking-tight">
+              Timeless <br /> <span className="italic font-light">Elegance</span>
             </h1>
-            <p className="text-lg text-gray-200 leading-relaxed max-w-md">
-              Discover our handcrafted collection of premium ethnic and western wear, designed for the modern woman.
+            <p className="text-lg md:text-xl text-gray-200 leading-relaxed max-w-lg mb-8 font-light">
+              Discover our handcrafted collection of premium wear, where heritage craftsmanship meets contemporary silhouettes.
             </p>
-            <div className="pt-4 flex gap-4">
+            <div className="flex gap-4">
               <Link to="/shop">
-                <Button size="lg" className="bg-white text-black hover:bg-gray-100 border-none">
-                  Shop Collection
+                <Button className="bg-white text-black border-white hover:bg-black hover:text-white hover:border-black transition-all duration-300 rounded-none px-10 py-4 uppercase tracking-widest text-xs font-bold">
+                  Shop Now
                 </Button>
               </Link>
-              {categories.length > 0 && (
-                <Link to={`/shop?category=${categories[0].slug}`}>
-                  <Button variant="outline" size="lg" className="text-white border-white hover:bg-white hover:text-black">
-                    View {categories[0].name}
-                  </Button>
-                </Link>
-              )}
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
 
-      {/* Features Banner */}
-      <section className="container mx-auto px-4 md:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 py-12 border-y border-gray-100">
-          <div className="flex items-center space-x-4 justify-center md:justify-start">
-            <div className="p-3 bg-gray-50 rounded-full">
-              <Truck className="h-6 w-6 text-gray-900" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm uppercase tracking-wide">Free Shipping</h3>
-              <p className="text-sm text-gray-500">On all orders above ₹1000</p>
-            </div>
+      {/* CURATED CATEGORIES (Asymmetrical Grid) */}
+      <section className="py-20 md:py-28 px-4 md:px-12 container mx-auto">
+        <div className="flex flex-col md:flex-row justify-between items-end mb-12 border-b border-gray-100 pb-6">
+          <div className="max-w-md">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Curated</span>
+            <h2 className="text-3xl md:text-4xl font-serif font-medium text-gray-900">The Collections</h2>
           </div>
-          <div className="flex items-center space-x-4 justify-center md:justify-start">
-            <div className="p-3 bg-gray-50 rounded-full">
-              <RefreshCw className="h-6 w-6 text-gray-900" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm uppercase tracking-wide">Easy Returns</h3>
-              <p className="text-sm text-gray-500">15-day return policy</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-4 justify-center md:justify-start">
-            <div className="p-3 bg-gray-50 rounded-full">
-              <ShieldCheck className="h-6 w-6 text-gray-900" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm uppercase tracking-wide">Secure Payment</h3>
-              <p className="text-sm text-gray-500">100% secure checkout</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Categories Grid */}
-      <section className="container mx-auto px-4 md:px-6">
-        <div className="flex justify-between items-end mb-8">
-          <h2 className="text-3xl font-serif font-bold text-gray-900">Shop by Category</h2>
-          <Link to="/categories" className="text-sm font-medium text-gray-900 hover:text-gray-600 flex items-center">
-            View All Categories <ArrowRight size={16} className="ml-1" />
+          <Link to="/categories" className="hidden md:flex items-center text-sm font-medium text-gray-900 hover:text-gray-500 transition-colors group">
+            View All Categories <ArrowRight size={16} className="ml-2 transition-transform group-hover:translate-x-1" />
           </Link>
         </div>
         
         {categoriesLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-[600px]">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="animate-pulse bg-gray-200 rounded-sm"></div>
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[600px] animate-pulse">
+            <div className="bg-gray-100 w-full h-full"></div>
+            <div className="flex flex-col gap-4 h-full">
+              <div className="bg-gray-100 flex-1"></div>
+              <div className="bg-gray-100 flex-1"></div>
+            </div>
           </div>
-        ) : categories.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-[600px]">
-            {/* First category - large */}
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:h-[800px]">
+            {/* Primary Category (Left, Full Height) */}
             {categories[0] && (
-              <Link to={`/shop?category=${categories[0].slug}`} className="group relative h-full w-full overflow-hidden md:col-span-1 lg:col-span-1">
+              <Link to={`/shop?category=${categories[0].slug}`} className="group relative w-full h-[400px] md:h-full overflow-hidden block bg-gray-100">
                 <img 
-                  src={
-                    categories[0].image 
-                      ? (categories[0].image.startsWith('http') 
-                          ? categories[0].image 
-                          : `http://localhost:8000${categories[0].image}`)
-                      : "https://images.unsplash.com/photo-1610030469983-98e550d6193c?q=80&w=800&auto=format&fit=crop"
-                  }
+                  src={categories[0].image || "https://images.unsplash.com/photo-1610030469983-98e550d6193c?q=80&w=800&auto=format&fit=crop"}
                   alt={categories[0].name}
-                  onError={(e) => {
-                    e.target.src = "https://images.unsplash.com/photo-1610030469983-98e550d6193c?q=80&w=800&auto=format&fit=crop";
-                  }} 
-                  className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-105"
                 />
-                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
-                <div className="absolute bottom-8 left-8 text-white">
-                  <h3 className="text-2xl font-serif font-bold">{categories[0].name}</h3>
-                  {categories[0].product_count > 0 && (
-                    <p className="text-sm text-gray-200 mt-1">{categories[0].product_count} Products</p>
-                  )}
-                  <span className="inline-block mt-2 text-sm border-b border-white pb-0.5">Shop Now</span>
+                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors duration-500" />
+                <div className="absolute bottom-8 left-8 text-white z-10">
+                  <span className="text-xs uppercase tracking-widest mb-2 block opacity-0 transform translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-500">Explore</span>
+                  <h3 className="text-3xl md:text-5xl font-serif font-medium">{categories[0].name}</h3>
                 </div>
               </Link>
             )}
 
-            <div className="grid grid-rows-2 gap-4 md:col-span-1 lg:col-span-2 h-full">
-              {/* Second category - full width */}
+            <div className="flex flex-col gap-4 h-full">
+              {/* Secondary Category (Right Top) */}
               {categories[1] && (
-                <Link to={`/shop?category=${categories[1].slug}`} className="group relative w-full h-full overflow-hidden">
+                <Link to={`/shop?category=${categories[1].slug}`} className="group relative flex-1 w-full overflow-hidden block bg-gray-100 h-[300px] md:h-auto">
                   <img 
-                    src={
-                      categories[1].image 
-                        ? (categories[1].image.startsWith('http') 
-                            ? categories[1].image 
-                            : `http://localhost:8000${categories[1].image}`)
-                        : "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=1000&auto=format&fit=crop"
-                    }
+                    src={categories[1].image || "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=1000&auto=format&fit=crop"}
                     alt={categories[1].name}
-                    onError={(e) => {
-                      e.target.src = "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=1000&auto=format&fit=crop";
-                    }} 
-                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-105"
                   />
-                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
-                  <div className="absolute bottom-6 left-6 text-white">
-                    <h3 className="text-xl font-serif font-bold">{categories[1].name}</h3>
-                    {categories[1].product_count > 0 && (
-                      <p className="text-xs text-gray-200 mt-1">{categories[1].product_count} Products</p>
-                    )}
+                  <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors duration-500" />
+                  <div className="absolute bottom-6 left-6 text-white z-10">
+                    <h3 className="text-2xl md:text-3xl font-serif font-medium">{categories[1].name}</h3>
                   </div>
                 </Link>
               )}
               
-              <div className="grid grid-cols-2 gap-4">
-                {/* Third and fourth categories */}
-                {categories[2] && (
-                  <Link to={`/shop?category=${categories[2].slug}`} className="group relative w-full h-full overflow-hidden">
-                    <img 
-                      src={
-                        categories[2].image 
-                          ? (categories[2].image.startsWith('http') 
-                              ? categories[2].image 
-                              : `http://localhost:8000${categories[2].image}`)
-                          : "https://images.unsplash.com/photo-1576053139778-7e32f2ae3cfd?q=80&w=600&auto=format&fit=crop"
-                      }
-                      alt={categories[2].name}
-                      onError={(e) => {
-                        e.target.src = "https://images.unsplash.com/photo-1576053139778-7e32f2ae3cfd?q=80&w=600&auto=format&fit=crop";
-                      }} 
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
-                    <div className="absolute bottom-6 left-6 text-white">
-                      <h3 className="text-xl font-serif font-bold">{categories[2].name}</h3>
-                      {categories[2].product_count > 0 && (
-                        <p className="text-xs text-gray-200 mt-1">{categories[2].product_count} Products</p>
-                      )}
-                    </div>
-                  </Link>
-                )}
-                {categories[3] && (
-                  <Link to={`/shop?category=${categories[3].slug}`} className="group relative w-full h-full overflow-hidden">
-                    <img 
-                      src={
-                        categories[3].image 
-                          ? (categories[3].image.startsWith('http') 
-                              ? categories[3].image 
-                              : `http://localhost:8000${categories[3].image}`)
-                          : "https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=600&auto=format&fit=crop"
-                      }
-                      alt={categories[3].name}
-                      onError={(e) => {
-                        e.target.src = "https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=600&auto=format&fit=crop";
-                      }} 
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
-                    <div className="absolute bottom-6 left-6 text-white">
-                      <h3 className="text-xl font-serif font-bold">{categories[3].name}</h3>
-                      {categories[3].product_count > 0 && (
-                        <p className="text-xs text-gray-200 mt-1">{categories[3].product_count} Products</p>
-                      )}
-                    </div>
-                  </Link>
-                )}
-              </div>
+              {/* Tertiary Category (Right Bottom) */}
+              {categories[2] && (
+                <Link to={`/shop?category=${categories[2].slug}`} className="group relative flex-1 w-full overflow-hidden block bg-gray-100 h-[300px] md:h-auto">
+                  <img 
+                    src={categories[2].image || "https://images.unsplash.com/photo-1576053139778-7e32f2ae3cfd?q=80&w=600&auto=format&fit=crop"}
+                    alt={categories[2].name}
+                    className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors duration-500" />
+                  <div className="absolute bottom-6 left-6 text-white z-10">
+                    <h3 className="text-2xl md:text-3xl font-serif font-medium">{categories[2].name}</h3>
+                  </div>
+                </Link>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="text-center py-12 text-gray-500">
-            <p>No categories available</p>
-          </div>
         )}
-      </section>
-
-      {/* Trending Products */}
-      <section className="container mx-auto px-4 md:px-6">
-         <div className="flex justify-between items-end mb-8">
-          <h2 className="text-3xl font-serif font-bold text-gray-900">Trending Now</h2>
-        </div>
         
-        {loading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="animate-pulse">
-                <div className="bg-gray-200 aspect-[3/4] rounded-sm mb-4"></div>
-                <div className="h-4 bg-gray-200 w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 w-1/4"></div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
-            {trendingProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        )}
+        <div className="mt-8 text-center md:hidden">
+          <Link to="/categories">
+            <Button variant="outline" className="w-full">View All Categories</Button>
+          </Link>
+        </div>
       </section>
 
-      {/* Newsletter */}
-      <section className="container mx-auto px-4 md:px-6 pt-8">
-        <div className="bg-black text-white rounded-sm p-12 text-center relative overflow-hidden">
-          <div className="relative z-10 max-w-2xl mx-auto space-y-6">
-            <h2 className="text-3xl md:text-4xl font-serif font-bold">Join the Aura List</h2>
-            <p className="text-gray-400">
-              Sign up for early access to new collections, exclusive sales, and style inspiration.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <input 
-                type="email" 
-                placeholder="Enter your email" 
-                className="bg-white/10 border border-white/20 text-white placeholder:text-gray-500 px-4 py-3 rounded-sm focus:outline-none focus:ring-1 focus:ring-white w-full sm:w-80"
-              />
-              <Button variant="secondary" className="whitespace-nowrap">
-                Subscribe
-              </Button>
+      {/* NEW ARRIVALS */}
+      <section className="py-20 bg-stone-50">
+         <div className="container mx-auto px-4 md:px-12">
+            <div className="text-center mb-16">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Just In</span>
+              <h2 className="text-3xl md:text-4xl font-serif font-medium text-gray-900">New Arrivals</h2>
             </div>
+            
+            {loading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
+                {[1,2,3,4].map(i => (
+                  <div key={i} className="animate-pulse">
+                    <div className="bg-gray-200 aspect-[3/4] mb-4"></div>
+                    <div className="h-4 bg-gray-200 w-2/3 mb-2"></div>
+                    <div className="h-4 bg-gray-200 w-1/3"></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-100px" }}
+                variants={staggerContainer}
+                className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8"
+              >
+                {trendingProducts.map((product) => (
+                  <motion.div key={product.id} variants={fadeInUp}>
+                    <ProductCard product={product} />
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+            
+            <div className="mt-16 text-center">
+              <Link to="/shop">
+                <Button variant="outline" className="min-w-[200px] border-black text-black hover:bg-black hover:text-white rounded-none uppercase text-xs tracking-widest font-bold">
+                  View All Products
+                </Button>
+              </Link>
+            </div>
+         </div>
+      </section>
+
+      {/* BRAND STORY / EDITORIAL */}
+      <section className="py-24 overflow-hidden bg-white">
+         <div className="container mx-auto px-6 md:px-12">
+            <div className="flex flex-col md:flex-row items-center gap-16 lg:gap-24">
+               <div className="md:w-1/2 relative">
+                  <div className="absolute top-0 left-0 w-full h-full bg-stone-100 transform -translate-x-4 -translate-y-4 -z-10" />
+                  <img 
+                    src="https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?q=80&w=2070&auto=format&fit=crop" 
+                    alt="The Atelier" 
+                    className="w-full h-auto object-cover transition-all duration-700 ease-in-out" 
+                  />
+               </div>
+               <div className="md:w-1/2 space-y-8">
+                  <span className="text-xs font-bold tracking-[0.2em] uppercase text-gray-400">The Atelier</span>
+                  <h2 className="text-4xl md:text-5xl font-serif font-medium leading-tight">
+                    Craftsmanship in <br/>Every Detail
+                  </h2>
+                  <p className="text-gray-600 leading-relaxed font-light text-lg">
+                     Every stitch tells a story. Our garments are crafted by master artisans using heritage techniques passed down through generations. We believe in slow fashion—creating pieces that are not just worn, but cherished.
+                  </p>
+                  <div className="pt-4">
+                    <Link to="/about" className="inline-flex items-center text-sm font-bold uppercase tracking-widest border-b border-black pb-1 hover:text-gray-600 hover:border-gray-600 transition-all group">
+                       Read Our Story <MoveRight className="ml-3 w-4 transition-transform group-hover:translate-x-2" />
+                    </Link>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </section>
+
+      {/* FEATURES STRIP (Minimal) */}
+      <section className="py-16 border-t border-gray-100">
+        <div className="container mx-auto px-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-center divide-y md:divide-y-0 md:divide-x divide-gray-100">
+            <div className="flex flex-col items-center gap-4 py-4 md:py-0">
+              <Truck className="h-6 w-6 text-gray-900" strokeWidth={1.5} />
+              <div>
+                <h3 className="font-bold text-xs uppercase tracking-widest mb-1">Global Shipping</h3>
+                <p className="text-sm text-gray-500 font-light">Free delivery on orders over ₹1000</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-4 py-4 md:py-0">
+              <RefreshCw className="h-6 w-6 text-gray-900" strokeWidth={1.5} />
+              <div>
+                <h3 className="font-bold text-xs uppercase tracking-widest mb-1">Easy Returns</h3>
+                <p className="text-sm text-gray-500 font-light">30-day seamless return policy</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-4 py-4 md:py-0">
+              <ShieldCheck className="h-6 w-6 text-gray-900" strokeWidth={1.5} />
+              <div>
+                <h3 className="font-bold text-xs uppercase tracking-widest mb-1">Secure Checkout</h3>
+                <p className="text-sm text-gray-500 font-light">100% protected payments</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* NEWSLETTER */}
+      <section className="py-24 bg-black text-white relative overflow-hidden">
+        <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+        <div className="container mx-auto px-6 relative z-10 text-center max-w-3xl">
+          <h2 className="text-3xl md:text-4xl font-serif font-medium mb-6">Join the Aura List</h2>
+          <p className="text-gray-400 mb-10 font-light text-lg">
+            Sign up for early access to new collections, exclusive sales, and styling tips directly to your inbox.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-0 max-w-md mx-auto">
+            <input 
+              type="email" 
+              placeholder="Enter your email address" 
+              className="bg-white/10 border-b border-white/20 text-white placeholder:text-gray-500 px-4 py-4 focus:outline-none focus:border-white focus:bg-white/5 w-full transition-all"
+            />
+            <button className="bg-white text-black px-8 py-4 uppercase text-xs font-bold tracking-widest hover:bg-gray-200 transition-colors mt-4 sm:mt-0">
+              Subscribe
+            </button>
           </div>
         </div>
       </section>

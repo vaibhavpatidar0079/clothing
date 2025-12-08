@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import api from '../lib/axios';
 import ProductCard from '../components/product/ProductCard';
 import Button from '../components/ui/Button';
+import DualRange from '../components/ui/DualRange';
 
 const ProductListPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -12,16 +13,35 @@ const ProductListPage = () => {
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [nextPageUrl, setNextPageUrl] = useState(null);
+  const observerTarget = useRef(null);
   
   // Filter States
   const category = searchParams.get('category') || '';
   const search = searchParams.get('search') || '';
-  const [priceRange, setPriceRange] = useState(50000);
-  const [sortBy, setSortBy] = useState('-created_at');
+  const priceParamMin = searchParams.get('price_min');
+  const priceParamMax = searchParams.get('price_max');
+  const [priceMin, setPriceMin] = useState(priceParamMin ? parseInt(priceParamMin) : 500);
+  const [priceMax, setPriceMax] = useState(priceParamMax ? parseInt(priceParamMax) : 50000);
+  const [sortBy, setSortBy] = useState('');
 
+  // Reset products when filters change
   useEffect(() => {
-    fetchProducts();
+    setProducts([]);
+    setNextPageUrl(null);
+    setHasMore(true);
+    fetchProducts(true);
   }, [searchParams, sortBy]); // Re-fetch when URL params or sort changes
+
+  // Keep local price state in sync when search params change externally
+  useEffect(() => {
+    const pmin = searchParams.get('price_min');
+    const pmax = searchParams.get('price_max');
+    if (pmin) setPriceMin(parseInt(pmin));
+    if (pmax) setPriceMax(parseInt(pmax));
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -63,27 +83,131 @@ const ProductListPage = () => {
     fetchCategories();
   }, []);
 
-  const fetchProducts = async () => {
-    setLoading(true);
+  // Set up Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore && !loading) {
+          loadMoreProducts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, isLoadingMore, loading]);
+
+  // Close filters on Escape (mobile/desktop)
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape' && isFilterOpen) {
+        setIsFilterOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isFilterOpen]);
+
+  const fetchProducts = async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    }
     try {
-      let query = `products/?ordering=${sortBy}`;
-      if (category) query += `&category__slug=${category}`;
-      if (search) query += `&search=${search}`;
+      // If no explicit sort selected, use top_products to get top-rated/most-bought randomized batches.
+      // If a sort is selected, fall back to the normal products listing with ordering.
+      let response;
+      if (!sortBy) {
+        let query = `products/top_products/?page_size=10`;
+        if (category) query += `&category__slug=${category}`;
+        if (search) query += `&search=${search}`;
+        if (searchParams.get('price_min')) query += `&price_min=${searchParams.get('price_min')}`;
+        if (searchParams.get('price_max')) query += `&price_max=${searchParams.get('price_max')}`;
+        response = await api.get(query);
+      } else {
+        let query = `products/?page_size=10&ordering=${sortBy}`;
+        if (category) query += `&category__slug=${category}`;
+        if (search) query += `&search=${search}`;
+        if (searchParams.get('price_min')) query += `&price_min=${searchParams.get('price_min')}`;
+        if (searchParams.get('price_max')) query += `&price_max=${searchParams.get('price_max')}`;
+        response = await api.get(query);
+      }
       
-      const response = await api.get(query);
-      setProducts(response.data.results || []);
+      const newProducts = response.data.results || [];
+      setProducts(newProducts);
+      setNextPageUrl(response.data.next);
+      setHasMore(!!response.data.next);
     } catch (error) {
       console.error("Error fetching products:", error);
+      setProducts([]);
+      setHasMore(false);
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
     }
   };
+
+  const loadMoreProducts = useCallback(async () => {
+    if (!nextPageUrl || isLoadingMore || !hasMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const response = await api.get(nextPageUrl);
+      const newProducts = response.data.results || [];
+      setProducts(prev => [...prev, ...newProducts]);
+      setNextPageUrl(response.data.next);
+      setHasMore(!!response.data.next);
+    } catch (error) {
+      console.error("Error loading more products:", error);
+      setHasMore(false);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [nextPageUrl, isLoadingMore, hasMore]);
 
   const handleCategoryChange = (newCategory) => {
     if (newCategory) setSearchParams({ category: newCategory });
     else setSearchParams({});
     setIsFilterOpen(false); // Close mobile drawer
   };
+
+  const updatePriceParams = (min, max) => {
+    // set search params directly (merge with existing) — keep values as strings
+    const paramsObj = Object.fromEntries([...searchParams]);
+    paramsObj.price_min = String(min);
+    paramsObj.price_max = String(max);
+    // Use replace to avoid creating history entries for each slider movement
+    setSearchParams(paramsObj, { replace: true });
+  };
+
+  // Debounce update triggered during slider interaction
+  const priceDebounceRef = useRef(null);
+  const schedulePriceParams = (min, max) => {
+    if (priceDebounceRef.current) clearTimeout(priceDebounceRef.current);
+    // Slightly longer debounce to reduce rapid requests while dragging
+    priceDebounceRef.current = setTimeout(() => {
+      updatePriceParams(min, max);
+      priceDebounceRef.current = null;
+    }, 400);
+  };
+
+  // Clear any pending debounce on unmount to avoid stray updates
+  useEffect(() => {
+    return () => {
+      if (priceDebounceRef.current) {
+        clearTimeout(priceDebounceRef.current);
+        priceDebounceRef.current = null;
+      }
+    };
+  }, []);
 
   // Find category name from slug
   const getCategoryName = () => {
@@ -113,21 +237,7 @@ const ProductListPage = () => {
             <Filter size={16} className="mr-2" /> Filters
           </button>
           
-          <div className="relative w-full md:w-48">
-            <select 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full appearance-none bg-white border border-gray-300 text-gray-700 py-2 px-4 pr-8 rounded-sm leading-tight focus:outline-none focus:border-gray-500"
-            >
-              <option value="-created_at">Newest First</option>
-              <option value="price">Price: Low to High</option>
-              <option value="-price">Price: High to Low</option>
-              <option value="-rating">Top Rated</option>
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-              <ChevronDown size={14} />
-            </div>
-          </div>
+          <div className="relative w-full md:w-48" />
         </div>
       </div>
 
@@ -139,7 +249,7 @@ const ProductListPage = () => {
         `}>
           <div className="flex justify-between md:hidden mb-6">
             <h2 className="text-xl font-bold">Filters</h2>
-            <button onClick={() => setIsFilterOpen(false)}>✕</button>
+            <button onClick={() => setIsFilterOpen(false)} aria-label="Close filters">✕</button>
           </div>
 
           <div className="space-y-8">
@@ -181,20 +291,77 @@ const ProductListPage = () => {
 
             {/* Price Range */}
             <div>
-               <h3 className="font-bold mb-4 text-sm uppercase tracking-wide">Max Price</h3>
-               <input 
-                type="range" 
-                min="500" 
-                max="50000" 
-                step="500"
-                value={priceRange}
-                onChange={(e) => setPriceRange(e.target.value)}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
+               <h3 className="font-bold mb-4 text-sm uppercase tracking-wide">Price Range</h3>
+               <DualRange
+                 min={500}
+                 max={50000}
+                 step={500}
+                 values={[priceMin, priceMax]}
+                 onChange={(vals) => {
+                   // update local UI immediately but debounce URL updates
+                   setPriceMin(vals[0]);
+                   setPriceMax(vals[1]);
+                   schedulePriceParams(vals[0], vals[1]);
+                 }}
+                 onChangeEnd={(vals) => {
+                   // make final, immediate update when user releases
+                   updatePriceParams(vals[0], vals[1]);
+                 }}
                />
-               <div className="flex justify-between text-xs text-gray-500 mt-2">
-                 <span>₹500</span>
-                 <span>₹{parseInt(priceRange).toLocaleString()}</span>
+
+               <div className="flex items-center gap-3 mt-3">
+                 <div className="flex-1">
+                   <label className="block text-xs text-gray-500">Min</label>
+                   <input
+                     type="number"
+                     min={500}
+                     max={priceMax - 500}
+                     step={500}
+                     value={priceMin}
+                     onChange={(e) => {
+                       const v = Math.max(500, Math.min(Number(e.target.value) || 500, priceMax - 500));
+                       setPriceMin(v);
+                       // immediate update for typed input
+                       updatePriceParams(v, priceMax);
+                     }}
+                     className="w-full border border-gray-300 rounded-sm py-1 px-2 text-sm"
+                   />
+                 </div>
+
+                 <div className="flex-1">
+                   <label className="block text-xs text-gray-500">Max</label>
+                   <input
+                     type="number"
+                     min={priceMin + 500}
+                     max={50000}
+                     step={500}
+                     value={priceMax}
+                     onChange={(e) => {
+                       const v = Math.min(50000, Math.max(Number(e.target.value) || 50000, priceMin + 500));
+                       setPriceMax(v);
+                       // immediate update for typed input
+                       updatePriceParams(priceMin, v);
+                     }}
+                     className="w-full border border-gray-300 rounded-sm py-1 px-2 text-sm"
+                   />
+                 </div>
                </div>
+            </div>
+
+            {/* Sort By */}
+            <div>
+              <h3 className="font-bold mb-4 text-sm uppercase tracking-wide">Sort By</h3>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full appearance-none bg-white border border-gray-300 text-gray-700 py-2 px-4 pr-8 rounded-sm leading-tight focus:outline-none focus:border-gray-500"
+              >
+                <option value="">Top Products (Recommended)</option>
+                <option value="-created_at">Newest First</option>
+                <option value="price">Price: Low to High</option>
+                <option value="-price">Price: High to Low</option>
+                <option value="-rating">Top Rated</option>
+              </select>
             </div>
             
             {/* Clear Filters */}
@@ -206,6 +373,16 @@ const ProductListPage = () => {
                 Clear All Filters
               </button>
             )}
+
+            {/* Mobile: Close button at bottom for easier access */}
+            <div className="md:hidden mt-6">
+              <button
+                onClick={() => setIsFilterOpen(false)}
+                className="w-full py-3 bg-gray-100 text-sm font-medium border border-gray-300"
+              >
+                Close Filters
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -222,11 +399,28 @@ const ProductListPage = () => {
               ))}
             </div>
           ) : products.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              {products.map(product => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                {products.map(product => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+              
+              {/* Infinite scroll observer target */}
+              <div ref={observerTarget} className="pt-8 text-center">
+                {isLoadingMore ? (
+                  <div className="flex justify-center items-center gap-2">
+                    <div className="w-2 h-2 bg-gray-900 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-gray-900 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-2 h-2 bg-gray-900 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                  </div>
+                ) : (
+                  !hasMore && products.length > 0 && (
+                    <p className="text-gray-500 text-sm">No more products to load</p>
+                  )
+                )}
+              </div>
+            </>
           ) : (
             <div className="text-center py-20 bg-gray-50">
               <p className="text-gray-500">No products found matching your criteria.</p>

@@ -243,7 +243,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 100,  # Increased to allow more products per request; frontend controls pagination
     
     # Exception Handling
     'EXCEPTION_HANDLER': 'store.utils.custom_exception_handler.custom_exception_handler',

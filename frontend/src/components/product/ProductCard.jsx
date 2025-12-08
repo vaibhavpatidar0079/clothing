@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { toggleWishlist, checkWishlistItems, addToWishlistOptimistic, removeFromWishlistOptimistic } from '../../store/slices/wishlistSlice';
-import { toast } from 'react-hot-toast';
+import { notifySuccess, notifyError } from '../../lib/notify';
 
 const ProductCard = ({ product }) => {
   const dispatch = useDispatch();
@@ -29,7 +29,7 @@ const ProductCard = ({ product }) => {
     }
 
     if (!isAuthenticated) {
-      toast.error('Please login to add items to wishlist');
+      notifyError('Please login to add items to wishlist');
       return;
     }
 
@@ -49,9 +49,9 @@ const ProductCard = ({ product }) => {
       await dispatch(toggleWishlist(product.id)).unwrap();
       
       if (willBeAdded) {
-        toast.success('Added to wishlist');
+        notifySuccess('Added to wishlist');
       } else {
-        toast.success('Removed from wishlist');
+        notifySuccess('Removed from wishlist');
       }
     } catch (error) {
       // Revert optimistic update on error
@@ -60,14 +60,14 @@ const ProductCard = ({ product }) => {
       } else {
         dispatch(removeFromWishlistOptimistic(product.id));
       }
-      toast.error(error.message || 'Failed to update wishlist');
+      notifyError(error.message || 'Failed to update wishlist');
     } finally {
       setIsToggling(false);
     }
   };
 
   return (
-    <div className="group relative">
+    <Link to={`/product/${product.id}`} className="group relative block">
       <div className="aspect-[3/4] w-full overflow-hidden rounded-sm bg-gray-100 relative">
         {/* Discount Badge */}
         {discountPercent > 0 && (
@@ -80,7 +80,7 @@ const ProductCard = ({ product }) => {
         <button 
           onClick={handleWishlistToggle}
           disabled={isToggling}
-          className="absolute top-2 right-2 z-10 p-2 rounded-full bg-white/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white text-gray-900 disabled:opacity-50"
+          className="absolute top-2 right-2 z-10 p-2 rounded-full bg-white/80 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-white text-gray-900 disabled:opacity-50"
         >
           <Heart 
             size={18} 
@@ -106,24 +106,22 @@ const ProductCard = ({ product }) => {
           }}
         />
 
-        {/* Quick Add Overlay (Optional, simple version here) */}
-        <div className="absolute inset-x-0 bottom-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <Link to={`/product/${product.id}`} className="block w-full">
-            <button className="w-full bg-white text-black py-3 text-sm font-medium uppercase tracking-wide hover:bg-gray-100 shadow-lg">
+        {/* Quick Add Overlay (Optional, simple version here) - hidden on mobile */}
+        <div className="absolute inset-x-0 bottom-0 p-4 hidden sm:block opacity-0 sm:group-hover:opacity-100 transition-opacity duration-300">
+          <div className="block w-full">
+            <div className="w-full bg-white text-black py-3 text-sm font-medium uppercase tracking-wide hover:bg-gray-100 shadow-lg text-center">
               View Product
-            </button>
-          </Link>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Product Info */}
       <div className="mt-4 space-y-1">
         <h3 className="text-xs text-gray-500 uppercase tracking-wide">{product.brand_name || 'Aura'}</h3>
-        <Link to={`/product/${product.id}`}>
-          <h2 className="text-sm font-medium text-gray-900 line-clamp-1 group-hover:text-gray-600 transition-colors">
-            {product.title}
-          </h2>
-        </Link>
+        <h2 className="text-sm font-medium text-gray-900 line-clamp-1 group-hover:text-gray-600 transition-colors">
+          {product.title}
+        </h2>
         <div className="flex items-center space-x-2">
           <p className="text-sm font-semibold text-gray-900">
             ₹{product.final_price?.toLocaleString()}
@@ -135,7 +133,7 @@ const ProductCard = ({ product }) => {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 };
 

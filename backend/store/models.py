@@ -133,13 +133,14 @@ class Address(TimeStampedModel):
 class Category(MPTTModel):
     """
     Hierarchical Category System (e.g., Clothing -> Women -> Sarees).
-    Uses MPTT for efficient tree traversal.
+    Uses MPPT for efficient tree traversal.
     """
     name = models.CharField(_("Name"), max_length=100)
     slug = models.SlugField(unique=True)
     parent = TreeForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
     image = models.ImageField(upload_to='categories/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    show_on_home = models.BooleanField(default=False, help_text="Display this category on home page")
     description = models.TextField(blank=True)
 
     class MPTTMeta:
@@ -202,6 +203,7 @@ class Product(TimeStampedModel):
     
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
+    show_on_home = models.BooleanField(default=False, help_text="Display this product on home page (new arrivals)")
     
     # Attributes for Filtering
     fabric = models.CharField(max_length=100, blank=True)

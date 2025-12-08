@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { register } from '../store/slices/authSlice';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import { toast } from 'react-hot-toast';
+import { notifySuccess, notifyError } from '../lib/notify';
 
 const RegisterPage = () => {
   const dispatch = useDispatch();
@@ -27,7 +27,7 @@ const RegisterPage = () => {
     e.preventDefault();
     
     if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords do not match");
+      notifyError("Passwords do not match");
       return;
     }
 
@@ -39,7 +39,7 @@ const RegisterPage = () => {
     }));
 
     if (!result.error) {
-      toast.success("Account created successfully!");
+      notifySuccess("Account created successfully!");
       navigate('/');
     }
   };

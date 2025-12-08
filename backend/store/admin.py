@@ -60,16 +60,17 @@ class AddressAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(DraggableMPTTAdmin):
-    mptt_indent_field = "name"
-    list_display = ('tree_actions', 'indented_title', 'image_preview', 'slug', 'product_count', 'is_active')
+    mppt_indent_field = "name"
+    list_display = ('tree_actions', 'indented_title', 'image_preview', 'slug', 'product_count', 'is_active', 'show_on_home')
     list_display_links = ('indented_title',)
+    list_filter = ('is_active', 'show_on_home')
     prepopulated_fields = {'slug': ('name',)}
     search_fields = ('name',)
     readonly_fields = ('image_preview',)
     
     fieldsets = (
         (None, {
-            'fields': ('name', 'slug', 'parent', 'is_active', 'image', 'image_preview', 'description')
+            'fields': ('name', 'slug', 'parent', 'is_active', 'show_on_home', 'image', 'image_preview', 'description')
         }),
     )
     
@@ -174,8 +175,8 @@ class ProductVariantInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('thumbnail', 'title', 'sku', 'price', 'get_final_price', 'inventory_status', 'is_active', 'is_featured')
-    list_filter = ('is_active', 'is_featured', 'brand', 'category', 'created_at')
+    list_display = ('thumbnail', 'title', 'sku', 'price', 'get_final_price', 'inventory_status', 'is_active', 'is_featured', 'show_on_home')
+    list_filter = ('is_active', 'is_featured', 'show_on_home', 'brand', 'category', 'created_at')
     search_fields = ('title', 'sku', 'description')
     prepopulated_fields = {'slug': ('title',)}
     inlines = [ProductImageInline, ProductSizeInline, ProductVariantInline]
@@ -183,7 +184,7 @@ class ProductAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (_('Basic Info'), {
-            'fields': ('title', 'slug', 'sku', 'brand', 'category', 'is_active', 'is_featured')
+            'fields': ('title', 'slug', 'sku', 'brand', 'category', 'is_active', 'is_featured', 'show_on_home')
         }),
         (_('Pricing & Tax'), {
             'fields': ('price', 'discount_price', 'tax_percent')

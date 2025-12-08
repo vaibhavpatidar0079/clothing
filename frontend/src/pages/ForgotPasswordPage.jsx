@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { requestPasswordReset, verifyOtp, resetPassword, clearResetState, clearError } from '../store/slices/authSlice';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import { toast } from 'react-hot-toast';
+import { notifySuccess, notifyError } from '../lib/notify';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 const ForgotPasswordPage = () => {
@@ -28,7 +28,7 @@ const ForgotPasswordPage = () => {
   // Handle error display
   useEffect(() => {
     if (error) {
-      toast.error(error);
+      notifyError(error);
       dispatch(clearError());
     }
   }, [error, dispatch]);
@@ -36,7 +36,7 @@ const ForgotPasswordPage = () => {
   const handleRequestOtp = async (e) => {
     e.preventDefault();
     if (!email) {
-      toast.error("Please enter your email");
+      notifyError("Please enter your email");
       return;
     }
     await dispatch(requestPasswordReset(email));
@@ -45,7 +45,7 @@ const ForgotPasswordPage = () => {
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     if (!otp) {
-      toast.error("Please enter the OTP");
+      notifyError("Please enter the OTP");
       return;
     }
     await dispatch(verifyOtp({ email: resetPasswordState.email, otp }));
@@ -54,11 +54,11 @@ const ForgotPasswordPage = () => {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      toast.error("Passwords do not match");
+      notifyError("Passwords do not match");
       return;
     }
     if (newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
+      notifyError("Password must be at least 8 characters");
       return;
     }
     
@@ -69,7 +69,7 @@ const ForgotPasswordPage = () => {
     }));
 
     if (!result.error) {
-      toast.success("Password reset successfully! Please login.");
+      notifySuccess("Password reset successfully! Please login.");
       setTimeout(() => {
         navigate('/login');
       }, 1500);

@@ -309,12 +309,13 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None  # Disable pagination for categories (small tree structure)
     
     def get_queryset(self):
-        """Filter to only show active categories and their active children"""
-        # Get all top-level categories (parent=None) that are active
+        """Filter to only show active categories that are marked to show on home page"""
+        # Get all top-level categories (parent=None) that are active and show_on_home=True
         # Also include their active children
         qs = Category.objects.filter(
             parent=None, 
-            is_active=True
+            is_active=True,
+            show_on_home=True
         ).prefetch_related(
             'children__children',
             'products'
@@ -342,7 +343,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     Advanced Product Catalog.
     Includes filtering, sorting, and optimization.
     """
-    queryset = Product.objects.filter(is_active=True).select_related('brand', 'category') \
+    queryset = Product.objects.filter(is_active=True, show_on_home=True).select_related('brand', 'category') \
         .prefetch_related('images', 'sizes', 'variants__variant_product', 'reviews') \
         .annotate(average_rating=Avg('reviews__rating'), total_reviews=Count('reviews')) \
         .order_by('-created_at')
@@ -364,6 +365,25 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == 'retrieve':
             return ProductDetailSerializer
         return ProductListSerializer
+
+    def get_queryset(self):
+        """
+        Return base queryset with optional price_min / price_max filters applied from query params.
+        This keeps other filtering/backends intact but supports the frontend `price_min`/`price_max` params.
+        """
+        qs = self.queryset
+        try:
+            pmin = self.request.query_params.get('price_min')
+            pmax = self.request.query_params.get('price_max')
+            if pmin is not None and pmin != '':
+                # allow decimal or integer values
+                qs = qs.filter(price__gte=Decimal(pmin))
+            if pmax is not None and pmax != '':
+                qs = qs.filter(price__lte=Decimal(pmax))
+        except Exception:
+            # If parsing fails, ignore price filters rather than raising
+            pass
+        return qs
     
     def get_serializer_context(self):
         """Ensure request context is passed to serializer for image URLs"""
@@ -411,6 +431,39 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         context = self.get_serializer_context()
         context['request'] = request
         serializer = ProductListSerializer(similar, many=True, context=context)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def top_products(self, request):
+        """
+        Returns paginated top products ordered by rating/reviews count, with random ordering within each page.
+        Supports all filtering parameters from the main list endpoint.
+        """
+        # Get the queryset with all filters applied
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Order by average_rating (descending) and total_reviews (descending) as a tiebreaker
+        # This gives us the "best" products first
+        queryset = queryset.order_by('-average_rating', '-total_reviews')
+        
+        # Paginate using DRF pagination
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            # Randomize the order within each page for variety
+            page_list = list(page)
+            random.shuffle(page_list)
+            
+            context = self.get_serializer_context()
+            context['request'] = request
+            serializer = self.get_serializer(page_list, many=True, context=context)
+            return self.get_paginated_response(serializer.data)
+        
+        # Fallback if pagination is not configured
+        queryset_list = list(queryset)
+        random.shuffle(queryset_list)
+        context = self.get_serializer_context()
+        context['request'] = request
+        serializer = self.get_serializer(queryset_list, many=True, context=context)
         return Response(serializer.data)
 
 

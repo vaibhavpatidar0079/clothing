@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { Star, Truck, Shield, Ruler, User, ThumbsUp, CheckCircle2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notifySuccess, notifyError, notify } from '../lib/notify';
 import api from '../lib/axios';
 import { addToCart } from '../store/slices/cartSlice';
 import Button from '../components/ui/Button';
@@ -33,7 +33,7 @@ const ProductDetailPage = () => {
         }
       } catch (error) {
          console.error("Fetch failed", error);
-         toast.error("Could not load product");
+         notifyError("Could not load product");
       } finally {
         setLoading(false);
       }
@@ -49,8 +49,8 @@ const ProductDetailPage = () => {
     const hasSize = product.size && product.size.trim() !== '';
     const requiresSizeSelection = hasSizes || hasSize;
     
-    if (requiresSizeSelection && !selectedSize) {
-      toast.error('Please select a size');
+      if (requiresSizeSelection && !selectedSize) {
+      notifyError('Please select a size');
       return;
     }
 
@@ -67,14 +67,14 @@ const ProductDetailPage = () => {
         quantity: 1
       })).unwrap();
 
-      toast.success('Added to bag');
+      notifySuccess('Added to bag');
     } catch (error) {
       // If 401, redirect to login
       if (error?.code === 'token_not_valid' || error?.detail?.includes('Authentication')) {
-         toast.error("Please login to shop");
+      notifyError("Please login to shop");
          navigate('/login');
       } else {
-         toast.error(error.error || 'Failed to add to cart');
+      notifyError(error.error || 'Failed to add to cart');
       }
     } finally {
       setAdding(false);
