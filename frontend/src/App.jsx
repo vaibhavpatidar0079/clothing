@@ -7,7 +7,7 @@ import { fetchCart } from './store/slices/cartSlice';
 // Layouts
 import MainLayout from './components/layout/MainLayout';
 
-// Pages (Placeholders for now, will generate next)
+// Pages
 import HomePage from './pages/HomePage';
 import ProductListPage from './pages/ProductListPage';
 import ProductDetailPage from './pages/ProductDetailPage';
@@ -18,6 +18,7 @@ import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import CheckoutPage from './pages/CheckoutPage';
 import ProfilePage from './pages/ProfilePage';
+import OrderDetailPage from './pages/OrderDetailPage';
 
 // ----------------------------------------------------------------------
 // UTILITIES
@@ -89,6 +90,11 @@ function App() {
           <Route path="profile" element={
             <ProtectedRoute>
               <ProfilePage />
+            </ProtectedRoute>
+          } />
+          <Route path="order/:id" element={
+            <ProtectedRoute>
+              <OrderDetailPage />
             </ProtectedRoute>
           } />
         </Route>

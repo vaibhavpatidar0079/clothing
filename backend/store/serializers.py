@@ -379,19 +379,25 @@ class OrderItemSerializer(serializers.ModelSerializer):
     product_image = serializers.SerializerMethodField()
     reviews = ReviewSerializer(many=True, read_only=True)
     return_requests = ReturnRequestSerializer(many=True, read_only=True)
+    product_color = serializers.ReadOnlyField(source='product.color')
     
     class Meta:
         model = OrderItem
         fields = (
             'id', 'product_name', 'product_slug', 'product_image',
-            'variant_name', 'price_at_purchase', 'quantity', 'total',
+            'variant_name', 'selected_size', 'product_color', 
+            'price_at_purchase', 'quantity', 'total',
             'reviews', 'return_requests'
         )
     
     def get_product_image(self, obj):
         try:
+            # First try to find primary image on product
             img = obj.product.images.filter(is_primary=True).first()
-            if img:
+            if not img and obj.product.images.exists():
+                img = obj.product.images.first()
+            
+            if img and img.image:
                 request = self.context.get('request')
                 return request.build_absolute_uri(img.image.url) if request else img.image.url
         except:
