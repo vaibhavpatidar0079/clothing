@@ -272,10 +272,10 @@ class ReturnRequestInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'get_total_amount', 'order_status', 'payment_status', 'created_at')
+    list_display = ('id', 'user', 'get_total_amount', 'order_status', 'payment_status', 'razorpay_order_id', 'razorpay_payment_id', 'created_at')
     list_filter = ('order_status', 'payment_status', 'created_at')
-    search_fields = ('id', 'user__email', 'tracking_number')
-    readonly_fields = ('id', 'tax_amount', 'shipping_cost', 'discount_amount', 'created_at', 'updated_at')
+    search_fields = ('id', 'user__email', 'tracking_number', 'razorpay_order_id', 'razorpay_payment_id')
+    readonly_fields = ('id', 'tax_amount', 'shipping_cost', 'discount_amount', 'created_at', 'updated_at', 'razorpay_order_id', 'razorpay_payment_id', 'razorpay_signature')
     inlines = [OrderItemInline, ReturnRequestInline]
     
     fieldsets = (
@@ -283,7 +283,11 @@ class OrderAdmin(admin.ModelAdmin):
             'fields': ('id', 'user', 'created_at', 'updated_at', 'order_status')
         }),
         (_('Payment'), {
-            'fields': ('payment_status', 'payment_method', 'payment_id', 'total_amount', 'tax_amount', 'discount_amount')
+            'fields': (
+                'payment_status', 'payment_method', 'payment_id',
+                'razorpay_order_id', 'razorpay_payment_id', 'razorpay_signature',
+                'total_amount', 'tax_amount', 'discount_amount'
+            )
         }),
         (_('Shipping'), {
             'fields': ('shipping_address', 'billing_address', 'shipping_cost', 'tracking_number')

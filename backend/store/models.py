@@ -432,6 +432,11 @@ class Order(TimeStampedModel):
     payment_method = models.CharField(max_length=50, default='CARD') # UPI, CARD, COD
     payment_id = models.CharField(max_length=100, blank=True, help_text="Stripe/Razorpay Payment Intent ID")
     
+    # Razorpay Integration Fields
+    razorpay_order_id = models.CharField(max_length=100, blank=True, null=True, help_text="Razorpay Order ID")
+    razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True, help_text="Razorpay Payment ID")
+    razorpay_signature = models.CharField(max_length=255, blank=True, null=True, help_text="Razorpay Payment Signature")
+    
     tracking_number = models.CharField(max_length=100, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when order was marked as delivered")
     

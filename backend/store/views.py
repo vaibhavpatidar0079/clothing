@@ -16,6 +16,7 @@ from django.contrib.auth import authenticate
 from django_filters.rest_framework import DjangoFilterBackend
 import random
 import string
+import logging
 
 from .models import (
     User, Address, Category, Brand, Product, ProductSize, ProductVariant,
@@ -28,6 +29,10 @@ from .serializers import (
     CartSerializer, CartItemSerializer,
     OrderSerializer, ReviewSerializer, ReturnRequestSerializer
 )
+from .utils.razorpay_utils import handle_razorpay_payment_for_order, verify_and_process_razorpay_payment
+from .emails import send_otp_email
+
+logger = logging.getLogger(__name__)
 from .emails import send_otp_email
 
 # -----------------------------------------------------------------------------
@@ -590,6 +595,109 @@ class OrderViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    @action(detail=False, methods=['post'])
+    def verify_payment(self, request):
+        """
+        Verify Razorpay payment signature and mark order as paid.
+        
+        Expected payload:
+        {
+            "order_id": "uuid",
+            "razorpay_payment_id": "pay_xxx",
+            "razorpay_order_id": "order_xxx",
+            "razorpay_signature": "signature_xxx"
+        }
+        """
+        import re
+        
+        order_id = request.data.get('order_id')
+        razorpay_payment_id = request.data.get('razorpay_payment_id')
+        razorpay_order_id = request.data.get('razorpay_order_id')
+        razorpay_signature = request.data.get('razorpay_signature')
+        
+        # Validate required fields
+        if not all([order_id, razorpay_payment_id, razorpay_order_id, razorpay_signature]):
+            return Response(
+                {'error': 'Missing required payment verification fields'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate signature format (HMAC-SHA256 hex = 128 hex chars)
+        if not isinstance(razorpay_signature, str) or not re.match(r'^[a-f0-9]{128}$', razorpay_signature):
+            logger.warning(f"Invalid signature format for order {order_id}")
+            return Response(
+                {'error': 'Invalid signature format'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate Razorpay ID formats (Razorpay IDs have specific prefixes)
+        if not isinstance(razorpay_payment_id, str) or not razorpay_payment_id.startswith('pay_'):
+            logger.warning(f"Invalid payment_id format: {razorpay_payment_id}")
+            return Response(
+                {'error': 'Invalid payment ID format'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not isinstance(razorpay_order_id, str) or not razorpay_order_id.startswith('order_'):
+            logger.warning(f"Invalid order_id format: {razorpay_order_id}")
+            return Response(
+                {'error': 'Invalid order ID format'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get the order with row lock to prevent concurrent verification attempts
+        try:
+            with transaction.atomic():
+                order = Order.objects.select_for_update().get(id=order_id, user=request.user)
+        except Order.DoesNotExist:
+            return Response(
+                {'error': 'Order not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Only Razorpay orders should go through verification
+        if order.payment_method != 'RAZORPAY':
+            return Response(
+                {'error': 'This order does not use Razorpay payment'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Prevent double-payment (race condition safe due to select_for_update lock)
+        if order.payment_status == 'paid':
+            return Response(
+                {'error': 'This order has already been paid', 'data': OrderSerializer(order).data},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify payment signature and update order
+        try:
+            success, message = verify_and_process_razorpay_payment(
+                order, 
+                razorpay_payment_id, 
+                razorpay_order_id, 
+                razorpay_signature
+            )
+            
+            if success:
+                return Response(
+                    {
+                        'message': message,
+                        'data': OrderSerializer(order).data
+                    },
+                    status=status.HTTP_200_OK
+                )
+            else:
+                return Response(
+                    {'error': message},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"Error verifying payment for order {order_id}: {str(e)}")
+            return Response(
+                {'error': f'Payment verification failed: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=['post'])
     def review_order(self, request, pk=None):
         """Add a review for a delivered order item"""
@@ -777,10 +885,22 @@ class OrderViewSet(viewsets.ModelViewSet):
             except Coupon.DoesNotExist:
                 coupon_obj = None
 
-        # Payment method handling
+        # Payment method handling with whitelist to prevent injection
+        ALLOWED_PAYMENT_METHODS = ['COD', 'RAZORPAY', 'CARD', 'UPI']
         payment_method = (request.data.get('payment_method') or 'CARD').upper()
-        # For COD leave payment_status pending; for online methods mock success
+        
+        # Validate payment method against whitelist
+        if payment_method not in ALLOWED_PAYMENT_METHODS:
+            return Response(
+                {'error': f'Invalid payment method. Allowed: {ALLOWED_PAYMENT_METHODS}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # For COD leave payment_status pending; for online methods handle based on type
         if payment_method == 'COD':
+            payment_status = 'pending'
+        elif payment_method == 'RAZORPAY':
+            # Payment will be marked as 'paid' after signature verification
             payment_status = 'pending'
         else:
             payment_status = 'paid'
@@ -797,7 +917,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             shipping_cost=shipping_cost,
             discount_amount=discount_amount,
             coupon=coupon_obj,
-            order_status='processing',
+            order_status='pending' if payment_method == 'RAZORPAY' else 'processing',
             payment_status=payment_status,
             payment_method=payment_method
         )
@@ -823,7 +943,24 @@ class OrderViewSet(viewsets.ModelViewSet):
         # 5. Clear Cart
         cart.items.all().delete()
 
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+        # 6. Handle Razorpay payment if selected
+        response_data = OrderSerializer(order).data
+        
+        if payment_method == 'RAZORPAY':
+            try:
+                razorpay_response = handle_razorpay_payment_for_order(order, total_amount)
+                response_data['razorpay_order'] = razorpay_response
+                logger.info(f"Razorpay order created for order {order.id}")
+            except Exception as e:
+                logger.error(f"Failed to create Razorpay order for order {order.id}: {str(e)}")
+                # Delete the order since Razorpay initialization failed
+                order.delete()
+                return Response(
+                    {'error': f'Failed to initialize payment: {str(e)}'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 # -----------------------------------------------------------------------------

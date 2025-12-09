@@ -7,6 +7,7 @@ import api from '../lib/axios';
 import { clearCart } from '../store/slices/cartSlice';
 import Button from '../components/ui/Button';
 import AddressForm from '../components/forms/AddressForm';
+import { initializeRazorpayPayment, verifyRazorpayPayment } from '../lib/razorpay';
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
@@ -106,23 +107,84 @@ const CheckoutPage = () => {
     setLoading(true);
     try {
       // 1. Create Order
+      // Use Razorpay for all online payment methods (CARD, GPAY, etc.)
       const response = await api.post('orders/', {
         shipping_address_id: selectedAddress,
         coupon_code: appliedCoupon ? appliedCoupon.code : null,
-        payment_method: paymentMethod
+        payment_method: paymentMethod === 'COD' ? 'COD' : 'RAZORPAY'
       });
 
-      // 2. Clear Local Cart
-      dispatch(clearCart());
-      
-      // 3. Success & Redirect
-      notifySuccess("Order placed successfully!");
-      navigate('/profile?tab=orders');
-      
+      const order = response.data;
+      const orderId = order.id;
+
+      // 2. Handle Razorpay Payment if backend returned razorpay order data
+      if (order.razorpay_order) {
+        const razorpayData = order.razorpay_order;
+        // Debug: log backend order payload so we can inspect the values
+        // eslint-disable-next-line no-console
+        console.debug('Order created:', order);
+        // eslint-disable-next-line no-console
+        console.debug('Razorpay payload from backend:', razorpayData);
+        
+        try {
+          // Initialize Razorpay payment
+          await initializeRazorpayPayment({
+            razorpay_key_id: razorpayData.razorpay_key_id,
+            razorpay_order_id: razorpayData.razorpay_order_id,
+            amount: razorpayData.amount,
+            currency: razorpayData.currency,
+            customer_name: razorpayData.customer_name,
+            customer_email: razorpayData.customer_email,
+            customer_phone: razorpayData.customer_phone,
+            order_id: orderId,
+            
+            // Success callback
+            onSuccess: async (paymentDetails) => {
+              // eslint-disable-next-line no-console
+              console.debug('Razorpay onSuccess paymentDetails:', paymentDetails);
+              try {
+                // Verify payment with backend
+                const verifyResponse = await verifyRazorpayPayment(
+                  paymentDetails,
+                  orderId,
+                  api
+                );
+
+                // Clear cart and redirect
+                dispatch(clearCart());
+                notifySuccess("Payment successful! Your order is being processed.");
+                navigate('/profile?tab=orders');
+              } catch (verifyError) {
+                console.error('Payment verification error:', verifyError);
+                notifyError(verifyError.message || "Payment verification failed");
+              } finally {
+                setLoading(false);
+              }
+            },
+            
+            // Error callback
+            onError: (error) => {
+              // eslint-disable-next-line no-console
+              console.error('Razorpay error:', error);
+              notifyError(error.message || "Payment failed. Please try again.");
+              setLoading(false);
+            }
+          });
+        } catch (razorpayError) {
+          console.error('Razorpay initialization error:', razorpayError);
+          notifyError(razorpayError.message || "Failed to initialize payment");
+          setLoading(false);
+        }
+      } else {
+        // For COD (or any non-online) payments - immediate success
+        dispatch(clearCart());
+        notifySuccess("Order placed successfully!");
+        navigate('/profile?tab=orders');
+        setLoading(false);
+      }
     } catch (error) {
       console.error(error);
       notifyError(error.response?.data?.error || "Order placement failed");
-    } finally {
       setLoading(false);
     }
   };
@@ -217,7 +279,7 @@ const CheckoutPage = () => {
             )}
           </section>
 
-          {/* Payment Method (Mock) */}
+          {/* Payment Method */}
           <section>
             <h2 className="text-xl font-bold mb-4">Payment Method</h2>
             <div className="p-4 border border-gray-200 rounded-sm bg-gray-50 space-y-3">
@@ -230,6 +292,10 @@ const CheckoutPage = () => {
                 <span className="font-medium">GPay / UPI (Simulated)</span>
               </label>
               <label className="flex items-center space-x-3">
+                <input type="radio" name="payment" value="RAZORPAY" checked={paymentMethod === 'RAZORPAY'} onChange={() => setPaymentMethod('RAZORPAY')} className="h-4 w-4 text-black focus:ring-black" />
+                <span className="font-medium">Razorpay (Cards, UPI, NetBanking)</span>
+              </label>
+              <label className="flex items-center space-x-3">
                 <input type="radio" name="payment" value="COD" checked={paymentMethod === 'COD'} onChange={() => setPaymentMethod('COD')} className="h-4 w-4 text-black focus:ring-black" />
                 <span className="font-medium">Cash on Delivery (COD)</span>
               </label>
@@ -239,6 +305,15 @@ const CheckoutPage = () => {
                   <div className="bg-white p-3 border border-gray-200 rounded text-sm text-gray-500">
                     <p>Card ending in 4242 (demo)</p>
                     <p>Expiry: 12/25</p>
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'RAZORPAY' && (
+                <div className="mt-4 pl-7">
+                  <div className="bg-white p-3 border border-gray-200 rounded text-sm text-gray-600">
+                    <p className="font-medium">You will be redirected to Razorpay's secure payment gateway.</p>
+                    <p className="text-gray-500 mt-1">Supported: Credit Cards, Debit Cards, Net Banking, UPI, Wallets</p>
                   </div>
                 </div>
               )}

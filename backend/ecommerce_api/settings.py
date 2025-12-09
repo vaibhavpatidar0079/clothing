@@ -32,6 +32,8 @@ env = environ.Env(
     CORS_ALLOWED_ORIGINS=(list, ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8000']),
     USE_S3=(bool, False),
     RESEND_API_KEY=(str, ''),
+    RAZORPAY_KEY_ID=(str, ''),
+    RAZORPAY_KEY_SECRET=(str, ''),
 )
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -375,3 +377,10 @@ CELERY_TIMEZONE = TIME_ZONE
 
 # Default Primary Key
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# -----------------------------------------------------------------------------
+# 15. RAZORPAY PAYMENT GATEWAY CONFIGURATION
+# -----------------------------------------------------------------------------
+
+RAZORPAY_KEY_ID = env('RAZORPAY_KEY_ID')
+RAZORPAY_KEY_SECRET = env('RAZORPAY_KEY_SECRET')
