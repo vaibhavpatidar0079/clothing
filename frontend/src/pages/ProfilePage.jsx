@@ -5,10 +5,11 @@ import {
   Package, MapPin, User as UserIcon, LogOut, Trash2, Edit2, 
   X, Plus, Star, Heart, ChevronRight, AlertCircle, ShoppingBag, ExternalLink, ArrowRight
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { notifySuccess, notifyError } from '../lib/notify';
 
 import { logout, fetchUserProfile } from '../store/slices/authSlice';
-import { fetchWishlist, toggleWishlist, removeFromWishlistOptimistic } from '../store/slices/wishlistSlice';
+import { fetchWishlist, toggleWishlist, removeFromWishlistOptimistic, removeItemFromWishlist } from '../store/slices/wishlistSlice';
 import api from '../lib/axios';
 
 import Button from '../components/ui/Button';
@@ -23,6 +24,8 @@ const ProfilePage = () => {
   const navigate = useNavigate();
   const { user } = useSelector(state => state.auth);
   const { items: wishlistItems, loading: wishlistLoading, wishlistItemIds } = useSelector(state => state.wishlist);
+
+  const [removingIds, setRemovingIds] = useState(new Set());
 
   // --- LOCAL STATE ---
   const [orders, setOrders] = useState([]);
@@ -511,47 +514,84 @@ const ProfilePage = () => {
                   </div>
                 ) : wishlistItems?.length > 0 ? (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-12 gap-x-8">
-                    {wishlistItems.map(product => (
-                      <div key={product.id} className="group relative cursor-pointer">
-                        <div className="aspect-[3/4] w-full bg-gray-100 overflow-hidden relative mb-4">
-                          <img
-                            src={product.primary_image || 'https://via.placeholder.com/400x600'}
-                            alt={product.title}
-                            className="w-full h-full object-cover transition-transform duration-1000 ease-out group-hover:scale-105"
-                          />
-                          <button
-                            onClick={async (e) => {
-                              e.preventDefault();
-                              dispatch(removeFromWishlistOptimistic(product.id));
-                              await dispatch(toggleWishlist(product.id)).unwrap();
-                              notifySuccess('Removed from wishlist');
-                            }}
-                            className="absolute top-3 right-3 p-2 bg-white rounded-full text-gray-900 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-gray-100 shadow-sm"
+                    <AnimatePresence>
+                      {wishlistItems.map(product => {
+                        const isRemoving = removingIds.has(product.id);
+                        const isInWishlist = wishlistItemIds.has(product.id) && !isRemoving;
+                        return (
+                          <motion.div
+                            layout
+                            initial={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.25 } }}
+                            transition={{ layout: { duration: 0.2 } }}
+                            key={product.id}
+                            className={`group relative cursor-pointer transition-opacity duration-200 ${isRemoving ? 'opacity-80' : 'opacity-100'}`}
+                            onClick={() => navigate(`/product/${product.id}`)}
                           >
-                            <X size={16} />
-                          </button>
-                          
-                          {/* Quick View Button */}
-                          <div className="absolute inset-x-4 bottom-4 opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-y-4 group-hover:translate-y-0">
-                            <button 
-                              onClick={() => navigate(`/product/${product.id}`)}
-                              className="w-full bg-white/90 backdrop-blur-sm text-black py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-white transition-colors shadow-lg"
-                            >
-                              View Product
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-medium text-gray-900 truncate font-serif mb-1">
-                            <a href={`/product/${product.id}`}>{product.title}</a>
-                          </h3>
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-gray-500 font-light">₹{product.final_price?.toLocaleString()}</p>
-                            {product.brand_name && <span className="text-[10px] uppercase tracking-widest text-gray-300">{product.brand_name}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                            <div className={`aspect-[3/4] w-full bg-gray-100 overflow-hidden relative mb-4 transition-all ${isRemoving ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+                              <img
+                                src={product.primary_image || 'https://via.placeholder.com/400x600'}
+                                alt={product.title}
+                                className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+                              />
+
+                              {/* Heart button - replaces X */}
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (isRemoving) return;
+                                  // Start slight fade (0.2) and mark as removing
+                                  setRemovingIds(prev => new Set(prev).add(product.id));
+                                  // Short delay so fade is visible, then remove the item
+                                  setTimeout(async () => {
+                                    try {
+                                      // Remove item from UI immediately (optimistic)
+                                      dispatch(removeItemFromWishlist(product.id));
+                                      await dispatch(toggleWishlist(product.id)).unwrap();
+                                      notifySuccess('Removed from wishlist');
+                                    } catch (err) {
+                                      notifyError('Failed to remove from wishlist');
+                                    } finally {
+                                      // cleanup removing state in case item still exists
+                                      setRemovingIds(prev => {
+                                        const next = new Set(prev);
+                                        next.delete(product.id);
+                                        return next;
+                                      });
+                                    }
+                                  }, 200);
+                                }}
+                                aria-label="Remove from wishlist"
+                                className="absolute top-3 right-3 z-20 p-2 text-neutral-700 hover:text-red-500"
+                              >
+                                <Heart size={20} fill={isInWishlist ? 'currentColor' : 'none'} stroke={isInWishlist ? 'currentColor' : 'currentColor'} className={isInWishlist ? 'text-red-500 scale-105 drop-shadow' : 'text-neutral-700'} />
+                              </button>
+
+                              {/* Take a look bottom-center */}
+                              <div className="absolute left-1/2 bottom-3 z-10 transform -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                <button
+                                  onClick={() => navigate(`/product/${product.id}`)}
+                                  className="pointer-events-auto bg-black bg-opacity-75 text-white px-4 py-2 text-sm font-semibold uppercase tracking-wider rounded"
+                                >
+                                  Take a look
+                                </button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h3 className="text-sm font-medium text-gray-900 truncate font-serif mb-1">
+                                <a href={`/product/${product.id}`}>{product.title}</a>
+                              </h3>
+                              <div className="flex items-center justify-start">
+                                <p className="text-sm text-gray-500 font-light">₹{product.final_price?.toLocaleString()}</p>
+                                {product.brand_name && <span className="ml-3 text-[10px] uppercase tracking-widest text-gray-300">{product.brand_name}</span>}
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
                   </div>
                 ) : (
                   <div className="text-center py-32">

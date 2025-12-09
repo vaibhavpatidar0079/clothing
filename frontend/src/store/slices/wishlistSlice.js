@@ -62,6 +62,12 @@ const wishlistSlice = createSlice({
     removeFromWishlistOptimistic: (state, action) => {
       state.wishlistItemIds.delete(action.payload);
     },
+    // Remove item from items list (optimistic removal from UI)
+    removeItemFromWishlist: (state, action) => {
+      const id = action.payload;
+      state.items = state.items.filter(item => item.id !== id);
+      state.wishlistItemIds.delete(id);
+    },
   },
   extraReducers: (builder) => {
     // Fetch wishlist
@@ -113,5 +119,5 @@ const wishlistSlice = createSlice({
   },
 });
 
-export const { clearWishlist, addToWishlistOptimistic, removeFromWishlistOptimistic } = wishlistSlice.actions;
+export const { clearWishlist, addToWishlistOptimistic, removeFromWishlistOptimistic, removeItemFromWishlist } = wishlistSlice.actions;
 export default wishlistSlice.reducer;

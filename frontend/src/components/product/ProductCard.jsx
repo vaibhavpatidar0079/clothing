@@ -68,29 +68,30 @@ const ProductCard = ({ product }) => {
 
   return (
     <Link to={`/product/${product.id}`} className="group relative block">
-      <div className="aspect-[3/4] w-full overflow-hidden rounded-sm bg-gray-100 relative">
+      <div className="aspect-[3/4] w-full overflow-hidden bg-neutral-100 relative">
         {/* Discount Badge */}
         {discountPercent > 0 && (
-          <div className="absolute top-2 left-2 z-10 bg-black text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider">
+          <div className="absolute top-3 left-3 z-20 bg-black text-white text-[10px] font-extrabold px-2 py-1 uppercase tracking-widest">
             -{discountPercent}%
           </div>
         )}
         
-        {/* Wishlist Button */}
-        <button 
+        {/* Wishlist Button (no background) - larger, premium look */}
+        <button
           onClick={handleWishlistToggle}
           disabled={isToggling}
-          className="absolute top-2 right-2 z-10 p-2 rounded-full bg-white/80 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-white text-gray-900 disabled:opacity-50"
+          aria-label="Toggle wishlist"
+          className="absolute top-3 right-3 z-20 p-2 disabled:opacity-50"
         >
-          <Heart 
-            size={18} 
+          <Heart
+            size={20}
             fill={isInWishlist ? 'currentColor' : 'none'}
             stroke={isInWishlist ? 'currentColor' : 'currentColor'}
-            className={isInWishlist ? 'text-red-500' : ''}
+            className={isInWishlist ? 'text-red-500 scale-110 drop-shadow' : 'text-neutral-700'}
           />
         </button>
 
-        {/* Image */}
+        {/* Main Product Image */}
         <img
           src={
             product.primary_image 
@@ -100,35 +101,32 @@ const ProductCard = ({ product }) => {
               : 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop'
           }
           alt={product.title}
-          className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
+          className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
           onError={(e) => {
             e.target.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?q=80&w=600&auto=format&fit=crop';
           }}
         />
-
-        {/* Quick Add Overlay (Optional, simple version here) - hidden on mobile */}
-        <div className="absolute inset-x-0 bottom-0 p-4 hidden sm:block opacity-0 sm:group-hover:opacity-100 transition-opacity duration-300">
-          <div className="block w-full">
-            <div className="w-full bg-white text-black py-3 text-sm font-medium uppercase tracking-wide hover:bg-gray-100 shadow-lg text-center">
-              View Product
-            </div>
-          </div>
+        {/* Hover overlay: only 'Take a look' button should appear at bottom-center */}
+        <div className="absolute left-1/2 bottom-3 z-10 transform -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <button className="pointer-events-auto bg-black bg-opacity-75 text-white px-4 py-2 text-sm font-semibold uppercase tracking-wider rounded">
+            Take a look
+          </button>
         </div>
       </div>
 
-      {/* Product Info */}
-      <div className="mt-4 space-y-1">
-        <h3 className="text-xs text-gray-500 uppercase tracking-wide">{product.brand_name || 'Aura'}</h3>
-        <h2 className="text-sm font-medium text-gray-900 line-clamp-1 group-hover:text-gray-600 transition-colors">
+      {/* Product Info - Centered Typography */}
+      <div className="mt-4 space-y-1 text-left">
+        <h3 className="text-xs text-neutral-600 uppercase tracking-widest font-semibold">{product.brand_name || 'Aura'}</h3>
+        <h2 className="text-sm font-semibold text-neutral-900 line-clamp-2 group-hover:text-neutral-700 transition-colors">
           {product.title}
         </h2>
-        <div className="flex items-center space-x-2">
-          <p className="text-sm font-semibold text-gray-900">
-            ₹{product.final_price?.toLocaleString()}
+        <div className="flex items-baseline justify-start space-x-3 pt-1">
+          <p className="text-base font-bold text-neutral-900">
+            {product.final_price?.toLocaleString()}
           </p>
           {product.discount_price && (
-            <p className="text-xs text-gray-500 line-through">
-              ₹{product.price?.toLocaleString()}
+            <p className="text-xs text-neutral-500 line-through">
+              {product.price?.toLocaleString()}
             </p>
           )}
         </div>
