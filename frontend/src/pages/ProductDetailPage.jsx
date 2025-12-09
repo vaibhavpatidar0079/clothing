@@ -179,6 +179,14 @@ const ProductDetailPage = () => {
 
           <div className="h-px bg-gray-200 my-6"></div>
 
+          {/* Color Display - Only when no variants */}
+          {(!product.variants || product.variants.length === 0) && product.color && (
+            <div className="mb-8">
+              <span className="text-sm font-medium text-gray-900 block mb-3">Colour</span>
+              <span className="text-lg font-medium text-gray-700">{product.color}</span>
+            </div>
+          )}
+
           {/* Size Selector */}
           {(product.sizes && product.sizes.length > 0) || product.size ? (
             <div className="mb-8">

@@ -348,7 +348,7 @@ const ProfilePage = () => {
                         {/* Order Header */}
                         <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-lg">#{order.id.slice(0, 8)}</span>
                               <span className={`px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider rounded-sm ${
                                 order.order_status === 'delivered' ? 'bg-green-100 text-green-800' : 
@@ -356,6 +356,15 @@ const ProfilePage = () => {
                                 'bg-blue-100 text-blue-800'
                               }`}>
                                 {order.order_status}
+                              </span>
+                              <span className={`px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider rounded-sm ${
+                                order.payment_method === 'COD' 
+                                  ? 'bg-gray-100 text-gray-700 border border-gray-300' 
+                                  : order.payment_status === 'completed' 
+                                  ? 'bg-gray-100 text-gray-700 border border-gray-300'
+                                  : 'bg-gray-100 text-gray-700 border border-gray-300'
+                              }`}>
+                                {order.payment_method === 'COD' ? 'COD' : 'Paid Online'}
                               </span>
                             </div>
                             <p className="text-sm text-gray-500">

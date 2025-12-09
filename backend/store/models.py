@@ -206,6 +206,7 @@ class Product(TimeStampedModel):
     show_on_home = models.BooleanField(default=False, help_text="Display this product on home page (new arrivals)")
     
     # Attributes for Filtering
+    color = models.CharField(_("Color"), max_length=100, blank=True)
     fabric = models.CharField(max_length=100, blank=True)
     pattern = models.CharField(max_length=100, blank=True)
     fit = models.CharField(max_length=100, blank=True)

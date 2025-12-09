@@ -163,7 +163,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'id', 'title', 'slug', 'brand_name', 'category_slug',
             'price', 'discount_price', 'final_price', 'discount_percentage',
             'primary_image', 'inventory_count', 'product_type', 'is_active', 
-            'average_rating', 'total_reviews'
+            'average_rating', 'total_reviews', 'color'
         )
 
     def get_primary_image(self, obj):
@@ -254,7 +254,7 @@ class ProductDetailSerializer(ProductListSerializer):
     
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + (
-            'description', 'short_description', 'fabric', 'pattern', 
+            'description', 'short_description', 'color', 'fabric', 'pattern', 
             'fit', 'occasion', 'care_instructions', 'images', 'sizes', 'variants', 'reviews', 'size'
         )
     

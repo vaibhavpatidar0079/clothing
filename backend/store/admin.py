@@ -193,7 +193,7 @@ class ProductAdmin(admin.ModelAdmin):
             'fields': ('description', 'short_description', 'care_instructions')
         }),
         (_('Attributes'), {
-            'fields': ('fabric', 'pattern', 'fit', 'occasion')
+            'fields': ('color', 'fabric', 'pattern', 'fit', 'occasion')
         }),
         (_('Simple Inventory'), {
             'fields': ('product_type', 'inventory_count', 'size'),

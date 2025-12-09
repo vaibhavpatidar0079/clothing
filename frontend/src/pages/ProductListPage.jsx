@@ -244,7 +244,8 @@ const ProductListPage = () => {
       <div className="flex flex-col md:flex-row gap-8">
         {/* Sidebar Filters */}
         <aside className={`
-          fixed inset-0 z-40 bg-white p-6 transition-transform duration-300 md:relative md:translate-x-0 md:bg-transparent md:p-0 md:w-64 md:block shadow-xl md:shadow-none overflow-y-auto
+          fixed inset-0 z-40 bg-white p-6 transition-transform duration-300 overflow-y-auto
+          md:relative md:inset-auto md:z-0 md:bg-transparent md:p-0 md:w-64 md:flex-shrink-0 md:overflow-visible md:translate-x-0 shadow-xl md:shadow-none
           ${isFilterOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
           <div className="flex justify-between md:hidden mb-6">
